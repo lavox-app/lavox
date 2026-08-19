@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+      Lavox Hub — hardened runtime entitlementek (Developer ID / notarizáció).
+      SZÁNDÉKOSAN minimális készlet: minden felesleges entitlement gyengíti
+      a hardened runtime védelmét. Screen capture-höz NINCS entitlement —
+      az tisztán TCC-alapú (Képernyőfelvétel engedély), nem kell ide.
+    -->
+
+    <!-- Mikrofon: a cpal-alapú meeting-/diktálás-felvételhez. -->
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
+
+    <!-- Kamera: a webcam PiP (arc-buborék) felvételhez. -->
+    <key>com.apple.security.device.camera</key>
+    <true/>
+
+    <!-- Apple Events: a lib.rs osascript-tel a System Events-et kérdezi
+         (frontmost app bundle id). Hardened runtime alatt e nélkül
+         az osascript-hívás elhalna. Párja az Info.plist
+         NSAppleEventsUsageDescription kulcsa. -->
+    <key>com.apple.security.automation.apple-events</key>
+    <true/>
+
+    <!-- Library validation kikapcsolása: a bundle nem-Apple, más team
+         által (vagy sehogy sem) aláírt dylib-eket tölt be
+         (whisper.cpp / sherpa-onnx). E nélkül a hardened runtime
+         megtagadná a betöltésüket. -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+</dict>
+</plist>

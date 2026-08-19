@@ -1,0 +1,52 @@
+services:
+  lavox-transcribe:
+    build: .
+    container_name: lavox-transcribe
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8040:8040"
+    networks:
+      - default
+      - utter_default
+      - leadengine
+    environment:
+      - WHISPER_MODEL=small
+      - COMPUTE_TYPE=int8
+      - MAX_FILE_MB=100
+      # Generálj egyet: python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+      - LAVOX_API_KEY=${LAVOX_API_KEY:-}
+      - DIARIZE_ENABLED=1
+      - SPEAKER_DB_DIR=/app/data/speakers
+      # Meeting-tár (Postgres a lead-db konténerben + Cloudflare R2)
+      # Fiókok + workspace-izoláció. Üresen hagyva: régi, egy-felhasználós mód.
+      - LAVOX_MULTI_TENANT=${LAVOX_MULTI_TENANT:-}
+      - LAVOX_PG_DSN=${LAVOX_PG_DSN:-}
+      - LAVOX_R2_ACCOUNT_ID=${LAVOX_R2_ACCOUNT_ID:-}
+      - LAVOX_R2_ACCESS_KEY_ID=${LAVOX_R2_ACCESS_KEY_ID:-}
+      - LAVOX_R2_SECRET_ACCESS_KEY=${LAVOX_R2_SECRET_ACCESS_KEY:-}
+      - LAVOX_R2_BUCKET=${LAVOX_R2_BUCKET:-}
+    volumes:
+      # enrollment-profilok túléljék a konténer-újraépítést
+      - lavox-speakers:/app/data/speakers
+    deploy:
+      resources:
+        limits:
+          # whisper small (~700M) + diarizáció (~500M csúcs) + fejtér
+          memory: 2500M
+          cpus: "2"
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request as u; u.urlopen('http://localhost:8040/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  lavox-speakers:
+
+networks:
+  default:
+  utter_default:
+    external: true
+  leadengine:
+    name: 02_lead_kezelo_workflow_default
+    external: true

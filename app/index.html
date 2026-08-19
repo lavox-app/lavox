@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Lavox Hub</title>
+    <!-- A Google Identity Services script INNEN KIKERÜLT: a Tauri CSP
+         (script-src 'self') csomagolt appban úgyis blokkolta, és a GIS
+         böngészős token-kliense refresh token nélküli, 1 órás hozzáférést ad.
+         A naptár-bejelentkezés mostantól natív, Rust-oldalon: src-tauri/src/gauth.rs -->
+  </head>
+
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

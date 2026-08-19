@@ -1,0 +1,13 @@
+node_modules/
+dist/
+target/
+.venv/
+__pycache__/
+*.pyc
+*.log
+*.wav
+models/
+captures/
+.DS_Store
+.env
+.env.*

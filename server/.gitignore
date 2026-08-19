@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# ML modellek (~104 MB) — a server/download_models.sh tölti le
+models/
+
+# FELHASZNÁLÓI ADAT — hangprofilok (beszélő-embeddingek).
+# Biometrikus jellegű adat: soha nem kerülhet verziókövetésbe.
+data/
+
+# Titkok
+.env
+.env.*
+!.env.example
+
+# Rendszer
+.DS_Store

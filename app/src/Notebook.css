@@ -1,0 +1,926 @@
+:root {
+  --nb-teal: #62a87c;
+  --nb-teal-dark: #4a8764;
+  --nb-text: #1b211e;
+  --nb-faint: #6c726d;
+  --nb-border: rgba(255, 255, 255, 0.28);
+  --nb-hair: rgba(120, 130, 125, 0.18);
+}
+
+* {
+  box-sizing: border-box;
+}
+/* FONTOS: az App.css :root-ja fehérre festené az ablakot (background-color:#fff),
+   ami kioltja az átlátszó ablakot. !important-tal átlátszóvá tesszük → üveg. */
+:root,
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+  background: transparent !important;
+  background-color: transparent !important;
+}
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  color: var(--nb-text);
+}
+
+/* Átlátszó ablak → minden réteg frosted glass. */
+.nb-root {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: transparent; /* a natív macOS vibrancy adja az üveget */
+  overflow: hidden;
+}
+.nb-root ::selection {
+  background: rgba(13, 148, 136, 0.22);
+}
+
+/* ---- Felső sáv (drag + összecsuk) ---- */
+.nb-titlebar {
+  flex-shrink: 0;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 78px; /* hely a traffic lights-nak */
+  padding-right: 12px;
+  background: rgba(255, 255, 255, 0.12);
+  border-bottom: 0.5px solid rgba(255, 255, 255, 0.18);
+}
+.nb-collapse {
+  width: 30px;
+  height: 26px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: #46514c;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.13s ease;
+}
+.nb-collapse:hover {
+  background: rgba(255, 255, 255, 0.4);
+  color: var(--nb-teal-dark);
+}
+.nb-titlebar-name {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #3a433e;
+  pointer-events: none;
+}
+
+.nb-body {
+  flex: 1 1 auto;
+  display: flex;
+  min-height: 0;
+}
+
+/* ---- BAL: sidebar (frosted) ---- */
+.nb-sidebar {
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.26);
+  border-right: 0.5px solid rgba(255, 255, 255, 0.18);
+  box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.4);
+  display: flex;
+  flex-direction: column;
+  padding: 12px 10px;
+  gap: 10px;
+  overflow: hidden;
+}
+.nb-newbtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: none;
+  border-radius: 11px;
+  padding: 9px 14px;
+  background: linear-gradient(180deg, rgba(20, 173, 158, 0.95), rgba(13, 118, 110, 0.95));
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.88rem;
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(13, 148, 136, 0.3), inset 0 0.5px 0 rgba(255, 255, 255, 0.4);
+}
+.nb-newbtn:hover {
+  filter: brightness(1.06);
+}
+.nb-search input {
+  width: 100%;
+  border: 0.5px solid var(--nb-border);
+  border-radius: 9px;
+  padding: 8px 11px;
+  font-size: 0.85rem;
+  background: rgba(255, 255, 255, 0.5);
+  color: var(--nb-text);
+  outline: none;
+  caret-color: var(--nb-teal-dark);
+}
+.nb-search input::placeholder {
+  color: var(--nb-faint);
+}
+.nb-search input:focus {
+  border-color: rgba(13, 148, 136, 0.5);
+  background: rgba(255, 255, 255, 0.7);
+  box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.13);
+}
+.nb-list {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.nb-empty {
+  color: var(--nb-faint);
+  font-size: 0.82rem;
+  text-align: center;
+  padding: 28px 10px;
+  line-height: 1.5;
+}
+.nb-item {
+  position: relative;
+  text-align: left;
+  border: none;
+  background: transparent;
+  border-radius: 9px;
+  padding: 9px 52px 9px 11px;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+/* Pin (kiemelés) — a törlés mellett balra, jobb felül */
+.nb-item-pin {
+  position: absolute;
+  top: 6px;
+  right: 28px;
+  width: 19px;
+  height: 19px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  color: var(--nb-faint);
+  opacity: 0;
+  transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease;
+}
+.nb-item:hover .nb-item-pin,
+.nb-item-active .nb-item-pin {
+  opacity: 0.7;
+}
+.nb-item-pin[data-pinned="true"] {
+  opacity: 1;
+  color: var(--nb-teal-dark);
+}
+.nb-item-pin[data-pinned="true"] svg {
+  fill: currentColor;
+}
+.nb-item-pin:hover {
+  opacity: 1;
+  background: rgba(13, 148, 136, 0.14);
+  color: var(--nb-teal-dark);
+}
+.nb-root[data-theme="dark"] .nb-item-pin[data-pinned="true"],
+.nb-root[data-theme="ultra"] .nb-item-pin[data-pinned="true"],
+.nb-root[data-theme="dark"] .nb-item-pin:hover,
+.nb-root[data-theme="ultra"] .nb-item-pin:hover {
+  color: #2dd4bf;
+}
+.nb-root[data-theme="dark"] .nb-item-pin,
+.nb-root[data-theme="ultra"] .nb-item-pin {
+  color: #9aa09c;
+}
+.nb-item:hover {
+  background: rgba(255, 255, 255, 0.4);
+}
+/* Vékony, Apple-like X a jegyzet jobb-felső sarkában (hover-re látszik) */
+.nb-item-del {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 19px;
+  height: 19px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  color: var(--nb-faint);
+  opacity: 0;
+  transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease;
+}
+.nb-item:hover .nb-item-del,
+.nb-item-active .nb-item-del {
+  opacity: 0.7;
+}
+.nb-item-del:hover {
+  opacity: 1;
+  background: rgba(239, 68, 68, 0.16);
+  color: #e0463c;
+}
+.nb-item-active {
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 1px 4px rgba(20, 30, 28, 0.07);
+}
+.nb-item-title {
+  font-weight: 600;
+  font-size: 0.88rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nb-item-prev {
+  color: var(--nb-faint);
+  font-size: 0.78rem;
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nb-item-time {
+  color: var(--nb-faint);
+  font-size: 0.7rem;
+  margin-top: 3px;
+}
+
+/* ---- Húzható elválasztó ---- */
+.nb-divider {
+  flex-shrink: 0;
+  width: 6px;
+  cursor: col-resize;
+  background: transparent;
+  position: relative;
+}
+.nb-divider::after {
+  content: "";
+  position: absolute;
+  left: 2.5px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--nb-hair);
+  transition: background 0.15s ease, width 0.15s ease;
+}
+.nb-divider:hover::after,
+.nb-divider:active::after {
+  background: rgba(13, 148, 136, 0.6);
+  width: 2px;
+}
+
+/* ---- JOBB FŐ RÉSZ ---- */
+.nb-main {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.nb-tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  padding: 8px 10px 0;
+  overflow-x: auto;
+  min-height: 44px;
+  background: transparent;
+}
+.nb-tabs-empty {
+  color: var(--nb-faint);
+  font-size: 0.8rem;
+  padding: 10px 4px;
+}
+.nb-tab {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 180px;
+  padding: 7px 10px;
+  border: 0.5px solid var(--nb-hair);
+  border-bottom: none;
+  border-radius: 10px 10px 0 0;
+  background: rgba(255, 255, 255, 0.32);
+  cursor: pointer;
+  font-size: 0.82rem;
+  color: var(--nb-faint);
+}
+.nb-tab-active {
+  background: rgba(28, 30, 34, 0.72);
+  color: #e9ebe9;
+  font-weight: 600;
+  border-color: rgba(255, 255, 255, 0.12);
+}
+.nb-tab-title {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nb-tab-close {
+  display: flex;
+  align-items: center;
+  border-radius: 5px;
+  padding: 1px;
+  opacity: 0.6;
+}
+.nb-tab-close:hover {
+  background: rgba(0, 0, 0, 0.12);
+  opacity: 1;
+}
+
+/* SZERKESZTŐ-ZÓNA — AI-composer üvegkártya */
+.nb-editor-wrap {
+  flex: 1 1 auto;
+  display: flex;
+  min-height: 0;
+  padding: 16px;
+}
+.nb-card {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: rgba(26, 28, 32, 0.82);
+  border: 0.5px solid rgba(255, 255, 255, 0.13);
+  border-radius: 18px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.22), 0 12px 34px rgba(0, 0, 0, 0.28),
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.14);
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+  overflow: hidden;
+}
+.nb-card:focus-within {
+  border-color: rgba(45, 212, 191, 0.5);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.22), 0 12px 36px rgba(0, 0, 0, 0.3),
+    0 0 0 3px rgba(45, 212, 191, 0.22), inset 0 0.5px 0 rgba(255, 255, 255, 0.14);
+}
+.nb-card-body {
+  flex: 1 1 auto;
+  display: flex;
+  min-height: 0;
+}
+.nb-editor {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 22px 24px;
+  font-size: 1rem;
+  line-height: 1.7;
+  color: #e9ebe9;
+  outline: none;
+  cursor: text;
+  caret-color: #e9ebe9;
+}
+.nb-editor[data-empty="true"]::before {
+  content: attr(data-placeholder);
+  color: rgba(255, 255, 255, 0.38);
+}
+.nb-editor blockquote {
+  border-left: 3px solid #2dd4bf;
+  margin: 8px 0;
+  padding: 2px 0 2px 14px;
+  color: #b9c2bd;
+}
+.nb-editor pre {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 10px 13px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.88rem;
+  white-space: pre-wrap;
+  color: #e9ebe9;
+}
+.nb-editor a {
+  color: #2dd4bf;
+}
+.nb-editor ul,
+.nb-editor ol {
+  padding-left: 22px;
+}
+/* Apple Notes-stílus: az ELSŐ sor mindig cím-kinézetű (markup nélkül is) */
+.nb-editor::first-line {
+  font-weight: 700;
+  font-size: 1.35em;
+  line-height: 1.35;
+}
+/* 3 heading-szint */
+.nb-editor h1 {
+  font-size: 1.5em;
+  font-weight: 700;
+  margin: 0.35em 0 0.2em;
+  line-height: 1.25;
+}
+.nb-editor h2 {
+  font-size: 1.27em;
+  font-weight: 700;
+  margin: 0.35em 0 0.2em;
+  line-height: 1.3;
+}
+.nb-editor h3 {
+  font-size: 1.12em;
+  font-weight: 600;
+  margin: 0.3em 0 0.2em;
+  line-height: 1.3;
+}
+
+/* JOBB OLDALI FORMÁZÓ-ESZKÖZTÁR */
+.nb-toolbar {
+  flex-shrink: 0;
+  width: 48px;
+  border-left: 0.5px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 12px 0;
+}
+.nb-tool {
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #b6bdb9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.nb-tool:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #2dd4bf;
+}
+.nb-tool-danger:hover {
+  color: #f87171;
+  background: rgba(248, 113, 113, 0.14);
+}
+.nb-tool-sep {
+  width: 26px;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.12);
+  margin: 6px 0;
+}
+.nb-tool-on {
+  background: rgba(255, 255, 255, 0.14) !important;
+  color: #2dd4bf !important;
+}
+
+/* Szövegstílus-dropdown */
+.nb-style-wrap {
+  position: relative;
+  display: flex;
+}
+.nb-style-menu {
+  position: absolute;
+  top: 0;
+  right: calc(100% + 8px);
+  z-index: 30;
+  min-width: 172px;
+  padding: 5px;
+  background: rgba(44, 46, 51, 0.98);
+  border: 0.5px solid rgba(255, 255, 255, 0.13);
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.nb-style-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 11px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #e9ebe9;
+  font-size: 0.86rem;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.nb-style-item span {
+  flex: 1 1 auto;
+}
+.nb-style-item:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* Téma-menü (a ⋯ gombból, felfelé nyílik) */
+.nb-theme-wrap {
+  position: relative;
+  display: flex;
+}
+.nb-cbtn-on {
+  background: rgba(255, 255, 255, 0.12);
+  color: #2dd4bf;
+}
+.nb-theme-menu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: 0;
+  z-index: 30;
+  min-width: 178px;
+  padding: 5px;
+  background: rgba(44, 46, 51, 0.98);
+  border: 0.5px solid rgba(255, 255, 255, 0.13);
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.nb-theme-head {
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #9aa09c;
+  padding: 6px 11px 4px;
+}
+.nb-theme-menu .nb-style-item {
+  color: #e9ebe9;
+}
+.nb-theme-menu .nb-style-item svg {
+  color: #2dd4bf;
+}
+
+/* ====== SÖTÉT TÉMA (data-theme="dark") — a chrome sötét, a kártya marad sötét ====== */
+.nb-root[data-theme="dark"] .nb-titlebar {
+  background: rgba(30, 32, 36, 0.42);
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+.nb-root[data-theme="dark"] .nb-titlebar-name {
+  color: #c8ccca;
+}
+.nb-root[data-theme="dark"] .nb-collapse {
+  color: #b6bdb9;
+}
+.nb-root[data-theme="dark"] .nb-collapse:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+.nb-root[data-theme="dark"] .nb-sidebar {
+  background: rgba(30, 32, 36, 0.44);
+  border-right-color: rgba(255, 255, 255, 0.09);
+  box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.08);
+}
+.nb-root[data-theme="dark"] .nb-search input {
+  background: rgba(255, 255, 255, 0.08);
+  color: #e9ebe9;
+  border-color: rgba(255, 255, 255, 0.12);
+}
+.nb-root[data-theme="dark"] .nb-search input::placeholder {
+  color: #8b918d;
+}
+.nb-root[data-theme="dark"] .nb-item:hover {
+  background: rgba(255, 255, 255, 0.07);
+}
+.nb-root[data-theme="dark"] .nb-item-active {
+  background: rgba(255, 255, 255, 0.12);
+}
+.nb-root[data-theme="dark"] .nb-item-title {
+  color: #e9ebe9;
+}
+.nb-root[data-theme="dark"] .nb-item-prev,
+.nb-root[data-theme="dark"] .nb-item-time,
+.nb-root[data-theme="dark"] .nb-empty {
+  color: #9aa09c;
+}
+.nb-root[data-theme="dark"] .nb-tab {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.1);
+  color: #9aa09c;
+}
+.nb-root[data-theme="dark"] .nb-tab-active {
+  background: rgba(26, 28, 32, 0.74);
+  color: #e9ebe9;
+}
+
+/* ====== VILÁGOS TÉMA (data-theme="light") — FEHÉR szövegdoboz, FEKETE betű ====== */
+.nb-root[data-theme="light"] .nb-card {
+  background: rgba(255, 255, 255, 0.74);
+  border-color: rgba(0, 0, 0, 0.08);
+  box-shadow: 0 1px 2px rgba(20, 30, 28, 0.05), 0 10px 30px rgba(20, 30, 28, 0.1),
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.65);
+}
+.nb-root[data-theme="light"] .nb-card:focus-within {
+  border-color: rgba(13, 148, 136, 0.5);
+  box-shadow: 0 1px 2px rgba(20, 30, 28, 0.05), 0 10px 32px rgba(13, 148, 136, 0.18),
+    0 0 0 3px rgba(13, 148, 136, 0.14), inset 0 0.5px 0 rgba(255, 255, 255, 0.65);
+}
+.nb-root[data-theme="light"] .nb-editor {
+  color: #1b211e;
+  caret-color: #111111;
+}
+.nb-root[data-theme="light"] .nb-editor[data-empty="true"]::before {
+  color: #8b8782;
+}
+.nb-root[data-theme="light"] .nb-editor blockquote {
+  border-left-color: var(--nb-teal);
+  color: #41504a;
+}
+.nb-root[data-theme="light"] .nb-editor pre {
+  background: rgba(0, 0, 0, 0.05);
+  color: #1b211e;
+}
+.nb-root[data-theme="light"] .nb-editor a {
+  color: var(--nb-teal-dark);
+}
+.nb-root[data-theme="light"] .nb-toolbar {
+  background: rgba(0, 0, 0, 0.03);
+  border-left-color: rgba(0, 0, 0, 0.07);
+}
+.nb-root[data-theme="light"] .nb-tool {
+  color: #44504b;
+}
+.nb-root[data-theme="light"] .nb-tool:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--nb-teal-dark);
+}
+.nb-root[data-theme="light"] .nb-tool-on {
+  background: rgba(0, 0, 0, 0.07) !important;
+  color: var(--nb-teal-dark) !important;
+}
+.nb-root[data-theme="light"] .nb-tool-sep {
+  background: rgba(0, 0, 0, 0.08);
+}
+.nb-root[data-theme="light"] .nb-cardbar {
+  background: rgba(0, 0, 0, 0.02);
+  border-top-color: rgba(0, 0, 0, 0.07);
+}
+.nb-root[data-theme="light"] .nb-count {
+  color: #8b8782;
+}
+.nb-root[data-theme="light"] .nb-cbtn {
+  color: #44504b;
+}
+.nb-root[data-theme="light"] .nb-cbtn:hover,
+.nb-root[data-theme="light"] .nb-cbtn-on {
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--nb-teal-dark);
+}
+.nb-root[data-theme="light"] .nb-ai {
+  background: rgba(255, 255, 255, 0.75);
+  border-color: rgba(0, 0, 0, 0.1);
+  color: var(--nb-teal-dark);
+}
+.nb-root[data-theme="light"] .nb-ai:hover {
+  background: #fff;
+}
+.nb-root[data-theme="light"] .nb-tab-active {
+  background: rgba(255, 255, 255, 0.8);
+  color: #1b211e;
+  border-color: rgba(0, 0, 0, 0.06);
+}
+/* Világos popover-menük (stílus + téma) */
+.nb-root[data-theme="light"] .nb-style-menu,
+.nb-root[data-theme="light"] .nb-theme-menu {
+  background: rgba(255, 255, 255, 0.99);
+  border-color: rgba(0, 0, 0, 0.1);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.16);
+}
+.nb-root[data-theme="light"] .nb-style-item {
+  color: #1b211e;
+}
+.nb-root[data-theme="light"] .nb-style-item:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+/* ====== ULTRA-ÁTLÁTSZÓ (data-theme="ultra") — világos betű, áttetsző sötét chrome ====== */
+.nb-root[data-theme="ultra"] .nb-titlebar {
+  background: rgba(20, 22, 26, 0.18);
+  border-bottom-color: rgba(255, 255, 255, 0.07);
+}
+.nb-root[data-theme="ultra"] .nb-titlebar-name {
+  color: #d6dad8;
+}
+.nb-root[data-theme="ultra"] .nb-collapse {
+  color: #c2c8c4;
+}
+.nb-root[data-theme="ultra"] .nb-collapse:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+.nb-root[data-theme="ultra"] .nb-sidebar {
+  background: rgba(20, 22, 26, 0.2);
+  border-right-color: rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.08);
+}
+.nb-root[data-theme="ultra"] .nb-search input {
+  background: rgba(255, 255, 255, 0.1);
+  color: #eef0ee;
+  border-color: rgba(255, 255, 255, 0.14);
+}
+.nb-root[data-theme="ultra"] .nb-search input::placeholder {
+  color: #b6bcb8;
+}
+.nb-root[data-theme="ultra"] .nb-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+.nb-root[data-theme="ultra"] .nb-item-active {
+  background: rgba(255, 255, 255, 0.14);
+}
+.nb-root[data-theme="ultra"] .nb-item-title {
+  color: #f0f2f0;
+}
+.nb-root[data-theme="ultra"] .nb-item-prev,
+.nb-root[data-theme="ultra"] .nb-item-time,
+.nb-root[data-theme="ultra"] .nb-empty {
+  color: #c4cac6;
+}
+.nb-root[data-theme="ultra"] .nb-tab {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.1);
+  color: #c4cac6;
+}
+.nb-root[data-theme="ultra"] .nb-tab-active {
+  background: rgba(26, 28, 32, 0.66);
+  color: #f0f2f0;
+}
+
+/* Alsó akció-sáv (sötét kártyán) */
+.nb-cardbar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px 8px 18px;
+  border-top: 0.5px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 0 0 17px 17px;
+}
+.nb-count {
+  font-size: 0.74rem;
+  color: rgba(255, 255, 255, 0.5);
+  font-variant-numeric: tabular-nums;
+}
+.nb-cardbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.nb-cbtn {
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #b6bdb9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.13s ease, color 0.13s ease;
+}
+.nb-cbtn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #2dd4bf;
+}
+.nb-ai {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0.5px solid rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.09);
+  padding: 6px 13px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #2dd4bf;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+.nb-ai:hover {
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(45, 212, 191, 0.55);
+  box-shadow: 0 1px 8px rgba(45, 212, 191, 0.25);
+}
+
+/* Üres állapot */
+.nb-no-active {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.nb-no-active-inner {
+  text-align: center;
+  color: var(--nb-faint);
+}
+.nb-no-active-inner h2 {
+  color: var(--nb-text);
+  margin: 0 0 6px;
+}
+.nb-newbtn-lg {
+  margin-top: 16px;
+  padding: 11px 20px;
+  font-size: 0.92rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ---- Slash-parancs menü (Notion-stílus) ---- */
+.nb-slash {
+  position: fixed;
+  z-index: 50;
+  min-width: 224px;
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 5px;
+  background: rgba(40, 42, 47, 0.99);
+  border: 0.5px solid rgba(255, 255, 255, 0.13);
+  border-radius: 12px;
+  box-shadow: 0 12px 38px rgba(0, 0, 0, 0.42);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.nb-slash-head {
+  font-size: 0.66rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #9aa09c;
+  padding: 5px 10px 4px;
+}
+.nb-slash-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 11px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #e9ebe9;
+  font-size: 0.86rem;
+  text-align: left;
+  cursor: pointer;
+}
+.nb-slash-item svg {
+  color: #9aa09c;
+  flex-shrink: 0;
+}
+.nb-slash-active {
+  background: rgba(45, 212, 191, 0.16);
+}
+.nb-slash-active svg {
+  color: #2dd4bf;
+}
+/* Világos téma: világos slash-menü */
+.nb-root[data-theme="light"] .nb-slash {
+  background: rgba(255, 255, 255, 0.99);
+  border-color: rgba(0, 0, 0, 0.1);
+  box-shadow: 0 12px 38px rgba(0, 0, 0, 0.16);
+}
+.nb-root[data-theme="light"] .nb-slash-item {
+  color: #1b211e;
+}
+.nb-root[data-theme="light"] .nb-slash-item svg {
+  color: #6c726d;
+}
+.nb-root[data-theme="light"] .nb-slash-active {
+  background: rgba(13, 148, 136, 0.12);
+}
+.nb-root[data-theme="light"] .nb-slash-active svg {
+  color: var(--nb-teal-dark);
+}
+
+/* ---- Beszúrt kép + fájl-csatolmány a szerkesztőben (kattintva megnyílik) ---- */
+.nb-editor img.nb-openable {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  margin: 6px 0;
+  display: block;
+  cursor: pointer;
+  transition: filter 0.12s ease, box-shadow 0.12s ease;
+}
+.nb-editor img.nb-openable:hover {
+  filter: brightness(1.05);
+  box-shadow: 0 0 0 2px rgba(45, 212, 191, 0.45);
+}
+.nb-attach {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 9px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #2dd4bf;
+  text-decoration: none;
+  font-size: 0.92em;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.nb-attach:hover {
+  background: rgba(45, 212, 191, 0.22);
+}
+.nb-root[data-theme="light"] .nb-attach {
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--nb-teal-dark);
+}
+.nb-root[data-theme="light"] .nb-attach:hover {
+  background: rgba(13, 148, 136, 0.16);
+}

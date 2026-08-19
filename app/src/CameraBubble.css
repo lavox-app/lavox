@@ -1,0 +1,48 @@
+/* Kamera-buborék: kör alakú, húzható, finom perem + árnyék, átlátszó háttér.
+   A képernyőfelvétel EZT rögzíti PiP-ként (nincs videó-kompozit). */
+:root,
+html,
+body,
+#root {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+}
+.cam-wrap {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+}
+.cam-circle {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 3px solid rgba(255, 255, 255, 0.9);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+  background: #111;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Húzhatóság: az egész buborék drag-region (a Rust-ablak mozgatható). */
+  -webkit-app-region: drag;
+}
+.cam-circle video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* A saját arc tükrözve természetesebb (mint egy tükör). */
+  transform: scaleX(-1);
+  pointer-events: none;
+}
+.cam-err {
+  padding: 10px;
+  font: 12px -apple-system, sans-serif;
+  color: #fff;
+  text-align: center;
+}

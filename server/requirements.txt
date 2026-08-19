@@ -1,0 +1,16 @@
+faster-whisper==1.1.1
+# fastapi >= 0.141 kell: az mcp csomag starlette >= 1.6-ot húz, amivel a
+# 0.115-ös fastapi összeférhetetlen (Router on_startup TypeError induláskor)
+fastapi==0.141.1
+uvicorn[standard]==0.34.3
+python-multipart==0.0.20
+requests
+httpx
+sherpa-onnx==1.13.4
+numpy
+psycopg[binary]==3.2.*
+boto3
+# Lavox Memory
+mcp
+fastembed==0.8.0
+sqlite-vec
