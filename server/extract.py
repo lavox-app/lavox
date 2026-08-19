@@ -33,7 +33,11 @@ import memory
 
 LLM_KEY = os.environ.get("LAVOX_LLM_KEY", "")
 LLM_MODEL = os.environ.get("LAVOX_LLM_MODEL", "anthropic/claude-haiku-4-5")
-OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+# Bármely OpenAI-kompatibilis chat-completions végpont megadható (Ollama, vLLM,
+# OpenAI, ...) — alapértelmezés az OpenRouter.
+LLM_URL = os.environ.get(
+    "LAVOX_LLM_URL", "https://openrouter.ai/api/v1/chat/completions"
+)
 
 MAX_ASSERTIONS = 12
 MAX_TRANSCRIPT_CHARS = 180_000   # haiku-kontextusba bőven belefér
@@ -78,7 +82,7 @@ Válasz KIZÁRÓLAG: {"relation":"duplicate|supersedes|separate"}"""
 
 def _llm(system: str, user: str, max_tokens: int = 4000) -> dict[str, Any]:
     resp = httpx.post(
-        OPENROUTER_URL,
+        LLM_URL,
         headers={
             "Authorization": f"Bearer {LLM_KEY}",
             "Content-Type": "application/json",

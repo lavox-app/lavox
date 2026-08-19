@@ -73,20 +73,16 @@ else
   echo "      Naptárral:  $INFISICAL_HINT"
 fi
 
-echo "== 1/6 Frontend build (vite) =="
+echo "== 1/5 Frontend build (vite) =="
 node ./node_modules/vite/bin/vite.js build
 
-echo "== 2/6 Rendszerhang-helper (syscap) fordítás =="
-swiftc -O -target arm64-apple-macos13.0 -parse-as-library \
-  src-tauri/helpers/syscap.swift -o src-tauri/helpers/syscap
-
-echo "== 3/6 Tauri bundle build (lokális target: $TARGET_DIR) =="
+echo "== 2/5 Tauri bundle build (lokális target: $TARGET_DIR) =="
 # beforeBuildCommand üres a tauri.conf-ban — a vite build fent már lefutott
 # (a beforeBuildCommand pipe-olt shellben hamis exit-hibát dob — tauri-cli quirk).
-CARGO_TARGET_DIR="$TARGET_DIR" MACOSX_DEPLOYMENT_TARGET=11.0 \
+CARGO_TARGET_DIR="$TARGET_DIR" MACOSX_DEPLOYMENT_TARGET=13.0 \
   pnpm tauri build --bundles app
 
-echo "== 4/6 Telepítés (TELJES bundle csere) =="
+echo "== 3/5 Telepítés (TELJES bundle csere) =="
 osascript -e 'quit app "Lavox Hub"' 2>/dev/null || true
 osascript -e 'quit app "hangar"' 2>/dev/null || true
 # A régi nevű app eltakarítása (az átnevezés után ne legyen két példány).
@@ -96,7 +92,7 @@ rm -rf "$APP_DST"
 cp -R "$APP_SRC" "$APP_DST"
 
 if [ -n "${LAVOX_SIGN_IDENTITY:-}" ]; then
-  echo "== 5/6 Aláírás Developer ID-vel (hardened runtime + entitlements) =="
+  echo "== 4/5 Aláírás Developer ID-vel (hardened runtime + entitlements) =="
   xattr -cr "$APP_DST"
   # Belülről kifelé írunk alá: ELŐBB a beágyazott Mach-O helper (syscap),
   # UTÁNA a teljes .app. --deep SZÁNDÉKOSAN NINCS: az Apple deprecálta, és
@@ -132,12 +128,12 @@ if [ -n "${LAVOX_SIGN_IDENTITY:-}" ]; then
     echo "      (Más gépen a Gatekeeper első indításkor kifogásolhatja.)"
   fi
 else
-  echo "== 5/6 Aláírás a stabil certtel (TCC engedélyek megmaradnak) =="
+  echo "== 4/5 Aláírás a stabil certtel (TCC engedélyek megmaradnak) =="
   xattr -cr "$APP_DST"
   codesign --force --deep --sign "$CERT" --identifier live.plansmart.hangar "$APP_DST"
 fi
 
-echo "== 6/6 Indítás =="
+echo "== 5/5 Indítás =="
 open "$APP_DST"
 echo ""
 echo "== ✅ KÉSZ — teljes bundle telepítve és újraindítva =="

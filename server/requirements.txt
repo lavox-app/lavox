@@ -11,6 +11,6 @@ numpy
 psycopg[binary]==3.2.*
 boto3
 # Lavox Memory
-mcp
+mcp>=2,<3
 fastembed==0.8.0
 sqlite-vec

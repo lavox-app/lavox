@@ -71,7 +71,7 @@ type CaptureResult = {
 > - [ ] Döntés: __________
 
 ## Mock
-`mocks/sample-meeting.json` — a séma kitöltött példánya. A motor `--emit-mock` parancsa ezt írja ki, hogy a UI/export motor nélkül is épülhessen.
+`mocks/sample-meeting.json` — a séma kitöltött példánya. Kézzel karbantartott fixture; az export-tesztek (`export.rs`) ellene futnak, így a séma-eltérés fordításkor kibukik.
 
 ## Jóváhagyás
 - [ ] D1 + D2 eldöntve

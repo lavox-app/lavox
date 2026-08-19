@@ -12,7 +12,7 @@
 // FONTOS (TCC): a Screen Recording engedély a SZÜLŐ apphoz (hangar.app)
 // kötődik — a stabil codesign cert miatt build-ek közt megmarad.
 //
-// Fordítás: swiftc -O -target arm64-apple-macos13.0 -parse-as-library syscap.swift -o syscap
+// Fordítás: a src-tauri/build.rs végzi automatikusan (mtime-alapú újrafordítás).
 
 import Foundation
 import ScreenCaptureKit

@@ -11,3 +11,5 @@ captures/
 .DS_Store
 .env
 .env.*
+# A syscap segéd a build.rs-ben fordul forrásból — a bináris nem kerül a repóba
+app/src-tauri/helpers/syscap
