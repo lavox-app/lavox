@@ -25,6 +25,10 @@ Ask your AI assistant:
 It answers from your own recorded meetings and voice notes, with the verbatim
 quote to prove it. That is what Lavox does.
 
+<p align="center">
+  <img src="docs/assets/memory-loop.png" alt="The memory loop: dictation is distilled into a decision card with the chosen option, the rejected alternative and the reasoning, then recalled by an AI over MCP with the verbatim quote" width="820" />
+</p>
+
 ## The problem
 
 Two problems, one root cause.
@@ -51,6 +55,10 @@ to every AI tool you use through the
 | Decision extraction | An LLM turns speech into typed records: decisions with the **chosen option, the rejected alternatives, and the stated reasoning** — plus facts, commitments, and tasks. |
 | A memory with history | Corrections supersede, they never delete. "What did we believe in July?" remains answerable after you change your mind in August. |
 | An interface for AI, not for you | No search UI to learn. An MCP server exposes `search`, `fetch`, `timeline`, `remember`, `correct`, and `profile` to Claude Code, Claude Desktop, or any MCP client. |
+
+<p align="center">
+  <img src="docs/assets/dashboard.png" alt="The Lavox web dashboard showing a recorded meeting with transcript and speakers" width="820" />
+</p>
 
 ## How the memory works
 
