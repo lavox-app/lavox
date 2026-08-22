@@ -1,11 +1,11 @@
-//! Megbízható push-to-talk billentyű-figyelő — a Discord / Wispr módszer.
+//! Reliable push-to-talk key listener — the Discord / Wispr approach.
 //!
-//! A „Global Shortcut" plugin egyszeri gyorsbillentyűkre való, és a nyomva-tartós
-//! push-to-talk ELENGEDÉSÉT chordnál megbízhatatlanul jelzi (ezért „nem áll le" a
-//! felvétel). Ehelyett egy **CGEventTap**-pel közvetlenül látjuk MINDEN billentyű
-//! le/felmenetelét, és magunk követjük a ⌘⇧Space állapotát → megbízható start+stop.
+//! The "Global Shortcut" plugin is meant for one-shot hotkeys, and for a
+//! hold-to-talk chord it reports the RELEASE unreliably (which is why the
+//! recording "never stops"). Instead, a **CGEventTap** lets us see EVERY key's
+//! down/up directly, and we track the ⌘⇧Space state ourselves → reliable start+stop.
 //!
-//! ⚠️ macOS **Input Monitoring** (Bemeneti figyelés) engedély kell hozzá.
+//! ⚠️ Requires the macOS **Input Monitoring** permission.
 
 #[cfg(target_os = "macos")]
 mod imp {
@@ -21,8 +21,8 @@ mod imp {
     static FNKEY: AtomicBool = AtomicBool::new(false);
     static SPACE: AtomicBool = AtomicBool::new(false);
     static DICTATING: AtomicBool = AtomicBool::new(false);
-    // A CGEventTap által figyelt aktív trigger-kombó (a lib.rs set_hotkey/get_hotkey
-    // állítja; induláskor a persistált érték töltődik be — Fn default).
+    // The active trigger combo watched by the CGEventTap (set via lib.rs
+    // set_hotkey/get_hotkey; on startup the persisted value is loaded — Fn default).
     pub(crate) static ACTIVE_COMBO: Mutex<Option<HotkeyCombo>> = Mutex::new(None);
 
     const SPACE_KEY: i64 = 49;
@@ -41,9 +41,9 @@ mod imp {
         }
     }
 
-    /// A pillanatnyi billentyű-állapotot a KONFIGURÁLT kombóhoz méri (combo_active).
-    /// Amíg a teljes kombó le van nyomva → diktálás; amint bármelyik eleme felmegy → stop.
-    /// A figyelt kombó az ACTIVE_COMBO (Fn default); élőben cserélhető set_active_combo-val.
+    /// Measures the current key state against the CONFIGURED combo (combo_active).
+    /// While the full combo is held → dictation; as soon as any part goes up → stop.
+    /// The watched combo is ACTIVE_COMBO (Fn default); swappable live via set_active_combo.
     fn update() {
         let state = KeyState {
             fn_: FNKEY.load(Ordering::Relaxed),
@@ -83,7 +83,7 @@ mod imp {
 
     pub fn start(app: tauri::AppHandle) {
         let _ = APP.set(app);
-        // A persistált trigger-kombó betöltése (Fn default), ha még nincs beállítva.
+        // Load the persisted trigger combo (Fn default) if not set yet.
         if let Ok(mut g) = ACTIVE_COMBO.lock() {
             if g.is_none() {
                 *g = Some(crate::hotkey_load_for_tap());
@@ -96,8 +96,8 @@ mod imp {
                 CGEventTapPlacement, CGEventType, CallbackResult, EventField,
             };
 
-            // with_enabled: létrehozza a tapet, runloop-forrást ad, engedélyezi, majd
-            // futtatja a megadott függvényt (a run loop blokkol, így a tap életben marad).
+            // with_enabled: creates the tap, adds a runloop source, enables it, then
+            // runs the given function (the run loop blocks, keeping the tap alive).
             let result = CGEventTap::with_enabled(
                 CGEventTapLocation::HID,
                 CGEventTapPlacement::HeadInsertEventTap,
@@ -144,7 +144,7 @@ mod imp {
                                 f.contains(CGEventFlags::CGEventFlagCommand),
                                 Ordering::Relaxed,
                             );
-                            // A Fn (🌐) a SecondaryFn flag (bit 0x800000).
+                            // Fn (🌐) is the SecondaryFn flag (bit 0x800000).
                             FNKEY.store(
                                 f.contains(CGEventFlags::CGEventFlagSecondaryFn),
                                 Ordering::Relaxed,
@@ -160,7 +160,7 @@ mod imp {
 
             if result.is_err() {
                 eprintln!(
-                    "Lavox Hub: a billentyű-figyelő (CGEventTap) nem indult — engedélyezd az Input Monitoringot."
+                    "Lavox Hub: the key listener (CGEventTap) did not start — enable Input Monitoring."
                 );
             }
         });
@@ -173,25 +173,25 @@ pub use imp::start;
 #[cfg(not(target_os = "macos"))]
 pub fn start(_app: tauri::AppHandle) {}
 
-/// Egy diktálás-trigger kombó: modifierek + opcionális fő billentyű (keycode).
-/// Fn-only trigger esetén `key == None`.
+/// A dictation-trigger combo: modifiers + optional main key (keycode).
+/// For an Fn-only trigger, `key == None`.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct HotkeyCombo {
-    /// A megkövetelt modifierek, kisbetűs kanonikus névvel: "fn","ctrl","shift","alt","cmd".
+    /// The required modifiers, by lowercase canonical name: "fn","ctrl","shift","alt","cmd".
     pub mods: Vec<String>,
-    /// Opcionális fő billentyű neve (jelenleg csak "Space" támogatott), vagy None.
+    /// Optional main key name (currently only "Space" is supported), or None.
     pub key: Option<String>,
 }
 
 impl Default for HotkeyCombo {
     fn default() -> Self {
-        // Alapértelmezés: Fn nyomva tartás (Wispr-stílus).
+        // Default: hold Fn (Wispr style).
         HotkeyCombo { mods: vec!["fn".to_string()], key: None }
     }
 }
 
-/// A CGEventTap által figyelt aktív kombó beállítása (élő újrakonfigurálás — a
-/// set_hotkey parancs hívja, nem kell app-újraindítás).
+/// Sets the active combo watched by the CGEventTap (live reconfiguration —
+/// called by the set_hotkey command, no app restart needed).
 pub fn set_active_combo(combo: HotkeyCombo) {
     #[cfg(target_os = "macos")]
     {
@@ -203,7 +203,7 @@ pub fn set_active_combo(combo: HotkeyCombo) {
     let _ = combo;
 }
 
-/// A billentyűzet pillanatnyi állapota, amit a matcher kiértékel.
+/// The keyboard's current state, evaluated by the matcher.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct KeyState {
     pub fn_: bool,
@@ -214,9 +214,9 @@ pub struct KeyState {
     pub space: bool,
 }
 
-/// Igaz, ha a `state` KIELÉGÍTI a `combo`-t: minden megkövetelt modifier le van nyomva,
-/// az összes NEM megkövetelt modifier fel van engedve (nincs túllövés — a Ctrl+Shift
-/// ne aktiválódjon a Ctrl+Shift+Alt-tól eltérő kombónál), és a fő billentyű (ha van) le van nyomva.
+/// True if `state` SATISFIES `combo`: every required modifier is down, every
+/// NON-required modifier is up (no overshoot — Ctrl+Shift must not activate
+/// on Ctrl+Shift+Alt), and the main key (if any) is down.
 pub fn combo_active(combo: &HotkeyCombo, state: &KeyState) -> bool {
     let want = |name: &str| combo.mods.iter().any(|m| m == name);
     let (wf, wc, ws, wa, wm) = (want("fn"), want("ctrl"), want("shift"), want("alt"), want("cmd"));
@@ -225,7 +225,7 @@ pub fn combo_active(combo: &HotkeyCombo, state: &KeyState) -> bool {
     }
     match combo.key.as_deref() {
         Some("Space") => state.space,
-        Some(_) => false, // ismeretlen fő billentyű → sosem aktív (védelem)
+        Some(_) => false, // unknown main key → never active (safety)
         None => true,
     }
 }
@@ -252,7 +252,7 @@ mod tests {
 
     #[test]
     fn fn_only_inactive_when_extra_modifier_held() {
-        // Túllövés-védelem: Fn+Ctrl ne aktiválja a tiszta Fn kombót.
+        // Overshoot protection: Fn+Ctrl must not activate the plain Fn combo.
         let c = HotkeyCombo::default();
         assert!(!combo_active(&c, &st(true, true, false, false, false, false)));
     }
@@ -261,8 +261,8 @@ mod tests {
     fn ctrl_shift_space_active_only_with_all_three() {
         let c = HotkeyCombo { mods: vec!["ctrl".into(), "shift".into()], key: Some("Space".into()) };
         assert!(combo_active(&c, &st(false, true, true, false, false, true)));
-        assert!(!combo_active(&c, &st(false, true, true, false, false, false))); // space nélkül
-        assert!(!combo_active(&c, &st(false, true, false, false, false, true)));  // shift nélkül
+        assert!(!combo_active(&c, &st(false, true, true, false, false, false))); // without space
+        assert!(!combo_active(&c, &st(false, true, false, false, false, true)));  // without shift
     }
 
     #[test]
@@ -273,19 +273,19 @@ mod tests {
 
     #[test]
     fn alt_cmd_required_and_active_only_when_both_down() {
-        // wa/wm (alt/cmd) eddig csak "extra"-ként szerepeltek a tesztekben — itt
-        // MEGKÖVETELT modifierként is lefedjük, hogy egy esetleges wa/wm-felcserélés
-        // (transzkripciós hiba) buktasson.
+        // wa/wm (alt/cmd) only appeared as "extras" in the tests so far — here
+        // we cover them as REQUIRED modifiers too, so an accidental wa/wm swap
+        // (a transcription slip) would fail the test.
         let c = HotkeyCombo { mods: vec!["alt".into(), "cmd".into()], key: None };
         assert!(combo_active(&c, &st(false, false, false, true, true, false)));
-        assert!(!combo_active(&c, &st(false, false, false, true, false, false))); // cmd nélkül
-        assert!(!combo_active(&c, &st(false, false, false, false, true, false))); // alt nélkül
+        assert!(!combo_active(&c, &st(false, false, false, true, false, false))); // without cmd
+        assert!(!combo_active(&c, &st(false, false, false, false, true, false))); // without alt
     }
 
     #[test]
     fn unknown_key_never_active() {
-        // A `Some(_) => false` fallback-ág — ismeretlen fő billentyű sosem aktív,
-        // még akkor sem, ha minden modifier stimmel.
+        // The `Some(_) => false` fallback arm — an unknown main key is never
+        // active, even when all modifiers match.
         let c = HotkeyCombo { mods: vec!["ctrl".into()], key: Some("Tab".into()) };
         assert!(!combo_active(&c, &st(false, true, false, false, false, false)));
     }

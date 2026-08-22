@@ -1,20 +1,20 @@
 """
-Lavox Transcription API — self-hosted faster-whisper + sherpa-onnx diarizáció.
+Lavox Transcription API — self-hosted faster-whisper + sherpa-onnx diarization.
 Deploy: docker compose up -d
-Endpointok:
-  POST   /api/transcribe            (multipart audio; ?diarize=true → beszélő-azonosítás)
-  POST   /api/speakers              (enrollment: 10-30s hangminta + név)
-  GET    /api/speakers              (workspace profiljai)
+Endpoints:
+  POST   /api/transcribe            (multipart audio; ?diarize=true → speaker identification)
+  POST   /api/speakers              (enrollment: 10-30s voice sample + name)
+  GET    /api/speakers              (the workspace's profiles)
   DELETE /api/speakers/{speaker_id}
-  POST   /api/meetings              (metaadat+átirat → presigned R2 upload URL-ek)
+  POST   /api/meetings              (metadata+transcript → presigned R2 upload URLs)
   PUT    /api/meetings/{id}/complete
-  GET    /api/meetings              (lista)
-  GET    /api/meetings/{id}         (teljes átirat + presigned lejátszási URL-ek)
+  GET    /api/meetings              (list)
+  GET    /api/meetings/{id}         (full transcript + presigned playback URLs)
   PATCH  /api/meetings/{id}
   DELETE /api/meetings/{id}
 
-Multi-tenant: minden speaker-műveletet az X-Workspace-Id fejléc szkópoz
-(alapértelmezés: "default" — lokál/self-hosted, egy-felhasználós mód).
+Multi-tenant: every speaker operation is scoped by the X-Workspace-Id header
+(default: "default" — local/self-hosted, single-user mode).
 """
 
 import asyncio
@@ -35,10 +35,11 @@ from faster_whisper.audio import decode_audio
 import accounts
 import shares
 
-# ── Lavox Memory (lokális, opcionális) ───────────────────────────────────────
-# A memória-modul CSAK a felhasználó gépén él (SQLite ~/Lavox/memory alatt);
-# a VPS-konténer nem tartalmazza (Dockerfile nem másolja) → ImportError → no-op.
-# Így ugyanaz az app.py fut mindkét házban, drift nélkül.
+# ── Lavox Memory (local, optional) ───────────────────────────────────────────
+# The memory module lives ONLY on the user's machine (SQLite under
+# ~/Lavox/memory); the VPS container does not include it (the Dockerfile does
+# not copy it) → ImportError → no-op. This way the same app.py runs in both
+# homes, without drift.
 try:
     import memory as _lavox_memory
     _MEMORY_OK = True
@@ -48,14 +49,14 @@ except Exception:
 
 
 def _memory_ingest_background(rec: dict, segments: list) -> None:
-    """Háttér-ingest a transzkripció után — a válasz nem várja meg.
-    Hibája sosem érinti a fő folyamatot, csak logol."""
+    """Background ingest after transcription — the response does not wait for it.
+    Its failure never affects the main flow, it only logs."""
     try:
         db = _lavox_memory.connect()
         res = _lavox_memory.ingest_recording(db, rec, segments)
         print(f"[memory] ingest: {res}")
     except Exception as e:
-        print(f"[memory] ingest FAILED (nem kritikus): {e}")
+        print(f"[memory] ingest FAILED (non-critical): {e}")
 
 
 import diarize as diar
@@ -70,10 +71,10 @@ COMPUTE_TYPE = os.environ.get("COMPUTE_TYPE", "int8")
 MAX_FILE_MB = int(os.environ.get("MAX_FILE_MB", "100"))
 DIARIZE_ENABLED = os.environ.get("DIARIZE_ENABLED", "1") == "1"
 
-# VAD: a korábbi (threshold=0.5, min_silence=500ms) beállítás halk/gyors
-# beszédkezdeteket dobott el. Alacsonyabb küszöb + rövidebb csend-ablak +
-# padding → kevesebb kimaradt beszéd; a hamis pozitívokat a whisper üres
-# szegmensként úgyis eldobja.
+# VAD: the previous settings (threshold=0.5, min_silence=500ms) dropped
+# quiet/fast speech onsets. Lower threshold + shorter silence window +
+# padding → less missed speech; whisper drops the false positives as empty
+# segments anyway.
 VAD_PARAMETERS = dict(
     threshold=float(os.environ.get("VAD_THRESHOLD", "0.35")),
     min_silence_duration_ms=int(os.environ.get("VAD_MIN_SILENCE_MS", "300")),
@@ -97,39 +98,40 @@ async def lifespan(app: FastAPI):
         diarizer = diar.Diarizer()
         print(f"Diarizer loaded in {time.time() - t0:.1f}s")
     else:
-        print("Diarizer DISABLED (env vagy hiányzó modellek — server/download_models.sh)")
+        print("Diarizer DISABLED (env or missing models — server/download_models.sh)")
     if mtg.available():
         try:
             mtg.init_schema()
             print("Meetings store READY (Postgres + R2)")
         except Exception as e:
             print(f"Meetings store FAILED to init: {e}")
-        # A bucket-CORS best-effort: admin-jogú R2 token kell hozzá (a jelenlegi
-        # Object R/W token nem tudja beállítani). CORS csak a böngészőből közvetlen
-        # R2-feltöltéshez kell; a <video>/<audio> lejátszás anélkül is megy.
+        # Bucket CORS is best-effort: it needs an admin-privileged R2 token
+        # (the current Object R/W token cannot set it). CORS is only needed
+        # for direct browser-to-R2 uploads; <video>/<audio> playback works
+        # without it.
         try:
             mtg.ensure_bucket_cors()
-            print("R2 bucket-CORS beállítva")
+            print("R2 bucket CORS configured")
         except Exception as e:
-            print(f"R2 bucket-CORS kihagyva (nem kritikus): {e}")
+            print(f"R2 bucket CORS skipped (non-critical): {e}")
     else:
-        print("Meetings store DISABLED (hiányzó LAVOX_PG_DSN / LAVOX_R2_* env)")
+        print("Meetings store DISABLED (missing LAVOX_PG_DSN / LAVOX_R2_* env)")
     if accounts.available():
         try:
             accounts.init_schema()
-            print("Accounts READY (multi-tenant: fiókok + workspace-tagság)")
+            print("Accounts READY (multi-tenant: accounts + workspace membership)")
         except Exception as e:
             print(f"Accounts FAILED to init: {e}")
     else:
-        print("Accounts DISABLED (self-hosted egy-felhasználós mód)")
+        print("Accounts DISABLED (self-hosted single-user mode)")
     if shares.available():
         try:
             shares.init_schema()
-            print("Shares READY (megosztható linkek, fiók nélküli megtekintés)")
+            print("Shares READY (shareable links, viewing without an account)")
         except Exception as e:
             print(f"Shares FAILED to init: {e}")
     else:
-        print("Shares DISABLED (hiányzó LAVOX_PG_DSN / meetings-tár)")
+        print("Shares DISABLED (missing LAVOX_PG_DSN / meetings store)")
     yield
     model = None
     diarizer = None
@@ -137,7 +139,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Lavox Transcription API", version="1.1.0", lifespan=lifespan)
 
-# A hangar-dashboard (lokális Vite app) böngészőből hívja az API-t — CORS kell.
+# The hangar-dashboard (local Vite app) calls the API from the browser — CORS is needed.
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 
 app.add_middleware(
@@ -173,14 +175,16 @@ def authorize(
     workspace: str,
     acting_user_id: str | None = None,
 ) -> str:
-    """Hitelesítés + workspace-jogosultság egy lépésben.
+    """Authentication + workspace authorization in one step.
 
-    Self-hosted mód (alapértelmezés): a régi viselkedés — megosztott API-kulcs
-    (vagy semmi, ha nincs LAVOX_API_KEY), a workspace csak formailag ellenőrzött.
+    Self-hosted mode (default): the old behavior — shared API key (or
+    nothing, if there is no LAVOX_API_KEY), the workspace is only formally
+    validated.
 
-    Multi-tenant mód: a Bearer token egy userhez tartozik, és a szerver
-    ellenőrzi, hogy tagja-e a kért workspace-nek. Enélkül az X-Workspace-Id
-    fejléc átírásával bárki elérné bármelyik workspace adatát.
+    Multi-tenant mode: the Bearer token belongs to a user, and the server
+    checks whether they are a member of the requested workspace. Without
+    this, anyone could reach any workspace's data by rewriting the
+    X-Workspace-Id header.
     """
     if not accounts.available():
         check_auth(authorization)
@@ -188,36 +192,38 @@ def authorize(
 
     token = (authorization or "").removeprefix("Bearer ").strip()
 
-    # Két hívó-típus:
-    #  a) A webapp SZOLGÁLTATÁSKÉNT: a szolgáltatás-kulcsot küldi + X-Lavox-User-Id
-    #     fejlécet. A kulcs csak a webapp szerverén létezik, sosem a böngészőben —
-    #     így nem kell per-user tokent a session-be tenni (ahonnan kiszivárogna).
-    #  b) A Lavox Hub / közvetlen kliens: saját per-user tokent küld.
-    # Mindkét esetben a tagság-ellenőrzés ugyanaz.
-    # A compare_digest STRINGEKKEL csak ASCII-t fogad; a Starlette viszont
-    # latin-1-gyel dekódolja a fejléceket, tehát a kliens tetszőleges bájtot
-    # betehet a tokenbe. Bájtokon összehasonlítva nincs TypeError, és a hívó
-    # rendes 401-et kap 500 helyett (hitelesítés nélkül kiváltható hibaút volt).
+    # Two caller types:
+    #  a) The webapp AS A SERVICE: it sends the service key + the
+    #     X-Lavox-User-Id header. The key only exists on the webapp's server,
+    #     never in the browser — so no per-user token has to go into the
+    #     session (from where it could leak).
+    #  b) The Lavox Hub / direct client: sends its own per-user token.
+    # The membership check is the same in both cases.
+    # compare_digest on STRINGS only accepts ASCII; Starlette, however,
+    # decodes headers as latin-1, so the client can put arbitrary bytes into
+    # the token. Comparing bytes avoids the TypeError, and the caller gets a
+    # proper 401 instead of 500 (this was an error path triggerable without
+    # authentication).
     if API_KEY and acting_user_id and hmac.compare_digest(
         token.encode("utf-8"), API_KEY.encode("utf-8")
     ):
         principal = accounts.user_by_id(acting_user_id)
         if not principal:
-            raise HTTPException(status_code=401, detail="Ismeretlen felhasználó")
+            raise HTTPException(status_code=401, detail="Unknown user")
     else:
         principal = accounts.user_by_token(token)
         if not principal:
-            raise HTTPException(status_code=401, detail="Érvénytelen vagy hiányzó token")
+            raise HTTPException(status_code=401, detail="Invalid or missing token")
 
     ws = check_workspace(workspace)
     owned = principal["workspaces"]
     member_ids = {w["id"] for w in owned}
-    # A kliens elhagyhatja a fejlécet ("default") — ilyenkor a saját első
-    # workspace-ére esünk vissza, nem a globális "default"-ra.
+    # The client may omit the header ("default") — in that case we fall back
+    # to their own first workspace, not the global "default".
     if ws == "default" and owned:
         return owned[0]["id"]
     if ws not in member_ids:
-        raise HTTPException(status_code=403, detail="Nincs jogosultság ehhez a workspace-hez")
+        raise HTTPException(status_code=403, detail="No permission for this workspace")
     return ws
 
 
@@ -225,7 +231,7 @@ def require_diarizer() -> "diar.Diarizer":
     if diarizer is None:
         raise HTTPException(
             status_code=503,
-            detail="Diarizáció nem elérhető (modellek hiányoznak vagy DIARIZE_ENABLED=0)",
+            detail="Diarization is not available (models missing or DIARIZE_ENABLED=0)",
         )
     return diarizer
 
@@ -234,7 +240,7 @@ def require_meetings():
     if not mtg.available():
         raise HTTPException(
             status_code=503,
-            detail="Meeting-tár nem elérhető (hiányzó LAVOX_PG_DSN / LAVOX_R2_* env)",
+            detail="Meeting store is not available (missing LAVOX_PG_DSN / LAVOX_R2_* env)",
         )
 
 
@@ -250,7 +256,7 @@ async def health():
     }
 
 
-# ── fiókok (csak multi-tenant módban; self-hosted telepítésen 404-et adnak) ────
+# ── accounts (multi-tenant mode only; on self-hosted installations they return 404) ──
 
 
 class RegisterBody(BaseModel):
@@ -269,21 +275,22 @@ def require_accounts():
     if not accounts.available():
         raise HTTPException(
             status_code=404,
-            detail="Ez a példány egy-felhasználós módban fut (nincs fiókkezelés).",
+            detail="This instance runs in single-user mode (no account management).",
         )
 
 
-# FIGYELEM: az auth-végpontok SZÁNDÉKOSAN `def` (nem `async def`) — a scrypt
-# másodperc-nagyságrendű, blokkoló CPU-munka. `async def`-ben az event-loopot
-# fogná, és néhány párhuzamos bejelentkezési kérés megbénítaná az egész
-# szervert (hitelesítés nélküli DoS). A sima `def`-et a FastAPI threadpoolba teszi.
+# WARNING: the auth endpoints are DELIBERATELY `def` (not `async def`) —
+# scrypt is second-scale, blocking CPU work. In an `async def` it would hold
+# the event loop, and a few concurrent login requests would paralyze the
+# whole server (unauthenticated DoS). FastAPI puts a plain `def` into the
+# threadpool.
 
 @app.post("/api/auth/register")
 def auth_register(body: RegisterBody, request: Request):
     require_accounts()
     ip = request.client.host if request.client else "?"
     if accounts.too_many_attempts(f"reg:{ip}"):
-        raise HTTPException(status_code=429, detail="Túl sok próbálkozás. Próbáld később.")
+        raise HTTPException(status_code=429, detail="Too many attempts. Try again later.")
     accounts.record_attempt(f"reg:{ip}")
     try:
         return accounts.register(body.email, body.password, body.first_name, body.last_name)
@@ -298,16 +305,16 @@ def auth_login(body: LoginBody, request: Request):
     email_key = f"login:{accounts._normalize_email(body.email)}"
     ip_key = f"login-ip:{ip}"
 
-    # Fék e-mailre ÉS IP-re: az előbbi a célzott, az utóbbi a szórt próbálkozást fogja.
+    # Brake on e-mail AND IP: the former catches targeted, the latter spread-out attempts.
     if accounts.too_many_attempts(email_key) or accounts.too_many_attempts(ip_key):
-        raise HTTPException(status_code=429, detail="Túl sok sikertelen próbálkozás. Próbáld később.")
+        raise HTTPException(status_code=429, detail="Too many failed attempts. Try again later.")
 
     result = accounts.login(body.email, body.password)
     if not result:
         accounts.record_attempt(email_key)
         accounts.record_attempt(ip_key)
-        # Szándékosan nem áruljuk el, az e-mail vagy a jelszó volt-e rossz.
-        raise HTTPException(status_code=401, detail="Hibás e-mail vagy jelszó.")
+        # Deliberately do not reveal whether the e-mail or the password was wrong.
+        raise HTTPException(status_code=401, detail="Incorrect e-mail or password.")
 
     accounts.clear_attempts(email_key)
     return result
@@ -322,18 +329,19 @@ class OAuthBody(BaseModel):
 
 @app.post("/api/auth/oauth")
 def auth_oauth(body: OAuthBody, authorization: str | None = Header(default=None)):
-    """Külső szolgáltatóval (Google/Microsoft/Apple) belépett user fiókjának
-    létrehozása vagy megkeresése.
+    """Create or look up the account of a user logged in via an external
+    provider (Google/Microsoft/Apple).
 
-    BIZTONSÁG: ezt a végpontot CSAK a webapp hívhatja a szolgáltatás-kulccsal.
-    Az e-mail birtoklását a szolgáltató igazolta a webapp felé — a backend a
-    webappban bízik. Kulcs nélkül bárki igényelhetne tetszőleges e-mail címet,
-    és átvehetné vele egy meglévő fiók workspace-ét.
+    SECURITY: this endpoint may ONLY be called by the webapp with the service
+    key. Ownership of the e-mail was proven by the provider to the webapp —
+    the backend trusts the webapp. Without the key, anyone could claim an
+    arbitrary e-mail address and take over an existing account's workspace
+    with it.
     """
     require_accounts()
     token = (authorization or "").removeprefix("Bearer ").strip()
     if not API_KEY or not hmac.compare_digest(token.encode("utf-8"), API_KEY.encode("utf-8")):
-        raise HTTPException(status_code=401, detail="Csak szolgáltatás-kulccsal hívható.")
+        raise HTTPException(status_code=401, detail="Callable only with the service key.")
     try:
         return accounts.upsert_oauth_user(
             body.email, body.first_name, body.last_name, body.provider
@@ -342,7 +350,7 @@ def auth_oauth(body: OAuthBody, authorization: str | None = Header(default=None)
         raise HTTPException(status_code=400, detail=str(e))
 
 
-# ── Hub-párosítás (device-code flow) ──────────────────────────────────────────
+# ── Hub pairing (device-code flow) ────────────────────────────────────────────
 
 
 class ClaimBody(BaseModel):
@@ -355,37 +363,38 @@ def hub_pair_start(
     x_workspace_id: str = Header(default="default"),
     x_lavox_user_id: str | None = Header(default=None),
 ):
-    """A webapp kéri (szolgáltatás-kulcs + user-fejléc). Rövid életű pároztató kódot ad."""
+    """Requested by the webapp (service key + user header). Returns a short-lived pairing code."""
     require_accounts()
     workspace = authorize(authorization, x_workspace_id, x_lavox_user_id)
     if not x_lavox_user_id:
-        raise HTTPException(status_code=400, detail="Hiányzó felhasználó a párosításhoz.")
+        raise HTTPException(status_code=400, detail="Missing user for pairing.")
     return accounts.create_pairing_code(x_lavox_user_id, workspace)
 
 
 @app.post("/api/hub/pair/claim")
 def hub_pair_claim(body: ClaimBody, request: Request):
-    """A HUB hívja, auth NÉLKÜL — a kód maga a titok. Beváltja eszköz-tokenre.
-    Rate-limitelt, hogy a rövid kódot ne lehessen brute-force-olni."""
+    """Called by the HUB, WITHOUT auth — the code itself is the secret.
+    Redeems it for a device token. Rate-limited so the short code cannot be
+    brute-forced."""
     require_accounts()
     ip = request.client.host if request.client else "?"
     if accounts.too_many_attempts(f"pair:{ip}"):
-        raise HTTPException(status_code=429, detail="Túl sok próbálkozás. Próbáld később.")
+        raise HTTPException(status_code=429, detail="Too many attempts. Try again later.")
     result = accounts.claim_pairing_code(body.code)
     if not result:
         accounts.record_attempt(f"pair:{ip}")
-        raise HTTPException(status_code=404, detail="Érvénytelen vagy lejárt párosító kód.")
+        raise HTTPException(status_code=404, detail="Invalid or expired pairing code.")
     return result
 
 
 @app.post("/api/hub/heartbeat")
 def hub_heartbeat(authorization: str | None = Header(default=None)):
-    """A HUB periodikusan hívja az eszköz-tokenjével → 'online' marad."""
+    """Called periodically by the HUB with its device token → it stays 'online'."""
     require_accounts()
     token = (authorization or "").removeprefix("Bearer ").strip()
     result = accounts.record_hub_heartbeat(token)
     if not result:
-        raise HTTPException(status_code=401, detail="Érvénytelen eszköz-token.")
+        raise HTTPException(status_code=401, detail="Invalid device token.")
     spaces = result.get("workspaces") or []
     return {"ok": True, "workspace": spaces[0]["id"] if spaces else None}
 
@@ -396,11 +405,11 @@ def hub_status_ep(
     x_workspace_id: str = Header(default="default"),
     x_lavox_user_id: str | None = Header(default=None),
 ):
-    """A webapp kérdezi: online-e a user Hubja?"""
+    """Asked by the webapp: is the user's Hub online?"""
     require_accounts()
     authorize(authorization, x_workspace_id, x_lavox_user_id)
     if not x_lavox_user_id:
-        raise HTTPException(status_code=400, detail="Hiányzó felhasználó.")
+        raise HTTPException(status_code=400, detail="Missing user.")
     return accounts.hub_status(x_lavox_user_id)
 
 
@@ -409,7 +418,7 @@ def auth_me(authorization: str | None = Header(default=None)):
     require_accounts()
     principal = accounts.user_by_token((authorization or "").replace("Bearer ", "").strip())
     if not principal:
-        raise HTTPException(status_code=401, detail="Érvénytelen vagy hiányzó token")
+        raise HTTPException(status_code=401, detail="Invalid or missing token")
     return principal
 
 
@@ -432,20 +441,22 @@ def _harvest_named_speakers(
     segments, speakers, sys_samples, workspace,
     mic_samples=None, mic_segments=None, me_name=None,
 ):
-    """A megnevezett beszélők hangprofiljának automatikus tanulása.
+    """Automatic learning of the named speakers' voice profiles.
 
-    Egy beszélő akkor "megnevezett", ha a label NEM a generikus "Speaker N"
-    forma — vagyis CC-fúzióból, enrollmentből vagy más névforrásból kapott
-    valódi nevet. A hangját eltároljuk → legközelebb felirat nélkül is
-    felismerjük. A mérgezés-védelem és a mintaszám-korlát a diarize.py-ban.
+    A speaker is "named" when the label is NOT the generic "Speaker N" form —
+    i.e. it received a real name from CC fusion, enrollment, or another name
+    source. We store their voice → next time we recognize them even without
+    captions. The poisoning defense and the sample-count limit live in
+    diarize.py.
     """
     if not speakers:
         return None
     learned, skipped = [], 0
 
-    # A felvevő ("én") profilja a mic-sávból — a legtisztább tanítóanyag.
-    # Ha a kérés nem ad nevet, a meglévő is_me profil neve bővül (így a
-    # SpeakersPanel-lel egyszer felvett profil magától erősödik tovább).
+    # The recorder's ("me") profile from the mic track — the cleanest training
+    # material. If the request gives no name, the existing is_me profile's
+    # name is extended (so a profile once recorded via the SpeakersPanel
+    # keeps strengthening by itself).
     if mic_samples is not None and mic_segments:
         effective_me = me_name
         if not effective_me:
@@ -457,6 +468,8 @@ def _harvest_named_speakers(
     if sys_samples is None:
         return {"learned": learned, "skipped": skipped} if learned else None
 
+    # "beszélő" is functional data: it matches Hungarian generic speaker
+    # labels ("Beszélő 1") produced by the pipeline. Do not translate.
     generic = re.compile(r"^(speaker|beszélő)\s*\d+$", re.IGNORECASE)
     for spk in speakers:
         label = (spk.get("label") or "").strip()
@@ -471,14 +484,14 @@ def _harvest_named_speakers(
             else:
                 skipped += 1
         except Exception:
-            skipped += 1  # egy beszélő hibája nem viheti el a többiek tanulását
+            skipped += 1  # one speaker's failure must not sink the others' learning
     if not learned and not skipped:
         return None
     return {"learned": learned, "skipped": skipped}
 
 
 def _whisper_segments(path: str, language: str | None):
-    """Whisper-átirat egy fájlra → (szegmensek, info). Kétsávos módban sávonként."""
+    """Whisper transcript for one file → (segments, info). In two-track mode, per track."""
     segments_raw, info = model.transcribe(
         path,
         language=language,
@@ -500,28 +513,29 @@ def _whisper_segments(path: str, language: str | None):
 async def transcribe(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    lang: str = Query(default="hu", description="ISO nyelv-kód (hu, en, auto)"),
-    diarize: bool = Query(default=False, description="Beszélő-azonosítás bekapcsolása"),
-    num_speakers: int = Query(default=-1, description="Beszélők száma, ha ismert (-1 = auto)"),
+    lang: str = Query(default="hu", description="ISO language code (hu, en, auto)"),
+    diarize: bool = Query(default=False, description="Enable speaker identification"),
+    num_speakers: int = Query(default=-1, description="Number of speakers if known (-1 = auto)"),
     captions_json: str | None = Form(default=None),
-    # mic_file: a felvevő KÜLÖN mikrofon-sávja. Ha jön, kétsávos módban
-    # dolgozunk: `file` = a többiek (rendszerhang), `mic_file` = a felvevő.
+    # mic_file: the recorder's SEPARATE microphone track. If present, we work
+    # in two-track mode: `file` = the others (system audio), `mic_file` = the recorder.
     mic_file: UploadFile | None = File(default=None),
     me_name: str | None = Form(default=None),
     harvest: bool = Form(default=True),
-    # candidate_names: igazoltan jelenlévő nevek (naptár/Meet API) JSON-listája.
-    # A szöveg-alapú név-következtetés CSAK ezekből oszthat nevet.
+    # candidate_names: JSON list of names verifiably present (calendar/Meet API).
+    # Text-based name inference may ONLY assign names from these.
     candidate_names: str | None = Form(default=None),
-    # auto_save: ha true, a transzkripció UTÁN a szerver MAGÁTÓL elmenti a
-    # felvételt a felhőbe (Postgres + R2) — így a webappban azonnal megjelenik,
-    # kézi feltöltés nélkül.
+    # auto_save: if true, AFTER transcription the server saves the recording
+    # to the cloud (Postgres + R2) BY ITSELF — so it appears in the webapp
+    # immediately, without a manual upload.
     auto_save: bool = Form(default=False),
     meeting_id: str | None = Form(default=None),
     title: str | None = Form(default=None),
     created_at: str | None = Form(default=None),
     rec_type: str = Form(default="meeting"),
-    # A valós felvétel-hossz (mp) — a kliens tudja; enélkül a VAD-szűrt
-    # beszédidő kerülne mentésre, ami rövidebb a tényleges hossznál.
+    # The real recording length (s) — the client knows it; without it the
+    # VAD-filtered speech time would be saved, which is shorter than the
+    # actual length.
     duration_sec: str | None = Form(default=None),
     authorization: str | None = Header(default=None),
     x_workspace_id: str = Header(default="default"),
@@ -545,10 +559,11 @@ async def transcribe(
         language = None if lang == "auto" else lang
         t0 = time.time()
 
-        # A whisper/diarizáció szinkron és CPU-intenzív — to_thread-be tesszük,
-        # hogy NE blokkolja az event loop-ot. Blokkolt loop mellett a kapcsolat
-        # (a hosszú, néma feldolgozás alatt) idle-timeoutol → "empty reply";
-        # külön szálon a loop kiszolgálja a socketet, a válasz a végén kimegy.
+        # Whisper/diarization is synchronous and CPU-intensive — we put it in
+        # to_thread so it does NOT block the event loop. With a blocked loop
+        # the connection idle-timeouts (during the long, silent processing) →
+        # "empty reply"; on a separate thread the loop serves the socket and
+        # the response goes out at the end.
         segments, info = await asyncio.to_thread(_whisper_segments, tmp.name, language)
         full_text_parts = [s["text"] for s in segments]
         transcribe_time = time.time() - t0
@@ -559,10 +574,10 @@ async def transcribe(
         harvest_stats = None
 
         if two_track:
-            # ── KÉT-SÁVOS ÚT ──────────────────────────────────────────────
-            # `file` = a többiek (rendszerhang), `mic_file` = a felvevő.
-            # A két sáv KÜLÖN marad → az "én vs. ők" kérdés determinisztikus,
-            # platformtól függetlenül (Zoom, Teams, telefon is).
+            # ── TWO-TRACK PATH ────────────────────────────────────────────
+            # `file` = the others (system audio), `mic_file` = the recorder.
+            # The two tracks stay SEPARATE → the "me vs. them" question is
+            # deterministic, platform-independent (Zoom, Teams, phone too).
             with tempfile.NamedTemporaryFile(suffix=".wav", delete=True) as mtmp:
                 mtmp.write(mic_content)
                 mtmp.flush()
@@ -580,7 +595,7 @@ async def transcribe(
             full_text_parts = [s["text"] for s in segments]
             samples_for_harvest = sys_samples
         elif diarize and segments:
-            # ── EGYSÁVOS (visszafelé kompatibilis) ÚT ────────────────────
+            # ── SINGLE-TRACK (backwards-compatible) PATH ─────────────────
             t0 = time.time()
             samples_for_harvest = await asyncio.to_thread(decode_audio, tmp.name, diar.SAMPLE_RATE)
             segments, speakers = await asyncio.to_thread(
@@ -591,9 +606,9 @@ async def transcribe(
         else:
             samples_for_harvest = None
 
-        # Meet CC fúzió: valódi beszélő-nevek a whisper-szegmensekhez
-        # (idő + szöveg-kontextus alapján; a hibázó forrásokat egymással
-        # validálja — lásd fusion.py).
+        # Meet CC fusion: real speaker names for the whisper segments
+        # (based on time + text context; validates the fallible sources
+        # against each other — see fusion.py).
         fusion_stats = None
         if captions_json:
             try:
@@ -603,10 +618,10 @@ async def transcribe(
             except Exception as e:
                 fusion_stats = {"error": str(e)}
 
-        # ── SZÖVEG-ALAPÚ NÉV-JELEK (önbemutatkozás + megszólítás) ───────
-        # Determinisztikus regex-réteg a MÉG névtelen klaszterekre. Pool
-        # (candidate_names) megléte esetén csak igazoltan jelenlévő név
-        # osztható ki — kitalált név strukturálisan nem kerülhet be.
+        # ── TEXT-BASED NAME SIGNALS (self-introduction + addressing) ────
+        # Deterministic regex layer for the clusters STILL unnamed. When a
+        # pool (candidate_names) exists, only verifiably present names may
+        # be assigned — an invented name structurally cannot get in.
         intro_stats = None
         if speakers is not None:
             try:
@@ -617,8 +632,8 @@ async def transcribe(
             except Exception as e:
                 intro_stats = {"error": str(e)}
 
-        # ── OPCIONÁLIS LLM-réteg (alapból KI; LAVOX_LLM_KEY env kapcsolja) ──
-        # Utolsó réteg a még névtelen klaszterekre, szigorú pool-kényszerrel.
+        # ── OPTIONAL LLM layer (OFF by default; toggled by the LAVOX_LLM_KEY env) ──
+        # Last layer for the still-unnamed clusters, with a strict pool constraint.
         llm_stats = None
         if speakers is not None and identify.available():
             try:
@@ -629,10 +644,11 @@ async def transcribe(
             except Exception as e:
                 llm_stats = {"error": str(e)}
 
-        # ── HANGTANULÁS (harvest) ────────────────────────────────────────
-        # Minden beszélő, aki BÁRHONNAN nevet kapott, hangprofilt is kap — így
-        # a következő meetingen felirat nélkül is felismerhető. Kikapcsolható
-        # (harvest=false), a mérgezés-védelem a diarize.py-ban van.
+        # ── VOICE LEARNING (harvest) ─────────────────────────────────────
+        # Every speaker who received a name from ANYWHERE also gets a voice
+        # profile — so at the next meeting they are recognizable even without
+        # captions. Can be disabled (harvest=false); the poisoning defense
+        # lives in diarize.py.
         if harvest and diarizer is not None:
             try:
                 harvest_stats = await asyncio.to_thread(
@@ -645,22 +661,25 @@ async def transcribe(
             except Exception as e:
                 harvest_stats = {"error": str(e)}
 
-        # ── AUTO-SAVE a felhőbe (Postgres + R2) ──────────────────────────
-        # A transzkripció után MAGÁTÓL felkerül a webappba (nincs kézi
-        # feltöltés). A `file` temp-fájlja audio-ként megy R2-be; a videót a
-        # kliens tölti fel külön, ha van.
+        # ── AUTO-SAVE to the cloud (Postgres + R2) ───────────────────────
+        # After transcription it lands in the webapp BY ITSELF (no manual
+        # upload). The temp file of `file` goes to R2 as audio; the client
+        # uploads the video separately, if any.
         save_stats = None
         if auto_save and mtg.available():
             try:
                 mid = meeting_id or f"mtg_{int(info.duration)}_{len(segments)}"
-                # A valós felvétel-hossz a kliensből jön (duration_sec form-mező);
-                # az info.duration csak a VAD-szűrt beszédidő, ami rövidebb.
+                # The real recording length comes from the client (duration_sec
+                # form field); info.duration is only the VAD-filtered speech
+                # time, which is shorter.
                 real_dur = float(duration_sec) if duration_sec else info.duration
                 save_stats = await asyncio.to_thread(
                     mtg.save_meeting_direct,
                     workspace,
                     mid,
                     {
+                        # "Névtelen felvétel" = "Untitled recording" — user-visible
+                        # default title of the Hungarian-language product UI.
                         "title": title or "Névtelen felvétel",
                         "type": rec_type,
                         "created_at": created_at,
@@ -702,8 +721,9 @@ async def transcribe(
     if save_stats is not None:
         response["saved"] = save_stats
 
-    # Lavox Memory: minden átirat magától a memóriába folyik (háttérben,
-    # a válasz nem várja meg). Lokális gépen él; a VPS-en _MEMORY_OK=False.
+    # Lavox Memory: every transcript flows into the memory by itself (in the
+    # background, the response does not wait). Lives on the local machine; on
+    # the VPS _MEMORY_OK=False.
     if _MEMORY_OK and segments:
         from datetime import datetime as _dt, timezone as _tz
         _rid = meeting_id or f"rec_{_dt.now(_tz.utc).strftime('%Y%m%d_%H%M%S')}"
@@ -732,25 +752,25 @@ async def enroll_speaker(
     x_workspace_id: str = Header(default="default"),
     x_lavox_user_id: str | None = Header(default=None),
 ):
-    """Beszélő-enrollment: 10-30s tiszta hangminta → embedding-profil."""
+    """Speaker enrollment: 10-30s clean voice sample → embedding profile."""
     workspace = authorize(authorization, x_workspace_id, x_lavox_user_id)
     d = require_diarizer()
     if not name.strip():
-        raise HTTPException(status_code=400, detail="A név nem lehet üres")
+        raise HTTPException(status_code=400, detail="The name must not be empty")
 
     content = await _read_upload(file)
     with tempfile.NamedTemporaryFile(suffix=os.path.splitext(file.filename or "s.wav")[1] or ".wav") as tmp:
         tmp.write(content)
         tmp.flush()
-        # decode_audio + embed blokkoló CPU-munka — to_thread-be tesszük (ugyanaz
-        # a minta, mint a transcribe-nál), hogy ne fagyassza az event loopot.
+        # decode_audio + embed is blocking CPU work — we put it in to_thread
+        # (same pattern as in transcribe) so it does not freeze the event loop.
         samples = await asyncio.to_thread(decode_audio, tmp.name, sampling_rate=diar.SAMPLE_RATE)
 
     dur = len(samples) / diar.SAMPLE_RATE
     if dur < 5.0:
-        raise HTTPException(status_code=400, detail=f"A minta túl rövid ({dur:.1f}s) — minimum 5, ideálisan 10-30 másodperc kell")
+        raise HTTPException(status_code=400, detail=f"The sample is too short ({dur:.1f}s) — minimum 5, ideally 10-30 seconds")
     if dur > 120.0:
-        raise HTTPException(status_code=400, detail=f"A minta túl hosszú ({dur:.1f}s) — maximum 120 másodperc")
+        raise HTTPException(status_code=400, detail=f"The sample is too long ({dur:.1f}s) — maximum 120 seconds")
 
     embedding = await asyncio.to_thread(d.embed, samples)
     profile = diar.save_speaker(workspace, name, is_me, embedding)
@@ -763,15 +783,15 @@ async def enroll_speaker(
     })
 
 
-# FONTOS: list_speakers/remove_speaker (itt lent) és a meetings-endpointok
-# (lent) SZÁNDÉKOSAN sima `def`-ek, NEM `async def`. Blokkoló psycopg-hívást
-# futtatnak, amit FastAPI sima `def` esetén threadpoolba tesz. `async def`-ként
-# az event loopon blokkolnának, és egyetlen lassú DB-pillanat az EGÉSZ szervert
-# (a /health-et is) megfagyasztaná — ez történt 2026-08-03-án: egy korábbi,
-# ennél a fixnél régebbi app.py-ra épült deploy visszaállította ezeket
-# async-ra, ami néhány órás teljes deadlockot okozott éles környezetben. Ha
-# ismét async-ra kerülnek (pl. egy régebbi verzióból történő deployon
-# keresztül), a hiba visszatér. Deploy előtt mindig ellenőrizd git diff-fel.
+# IMPORTANT: list_speakers/remove_speaker (below) and the meetings endpoints
+# (below) are DELIBERATELY plain `def`s, NOT `async def`. They run blocking
+# psycopg calls, which FastAPI puts into a threadpool for a plain `def`. As
+# `async def` they would block on the event loop, and a single slow DB moment
+# would freeze the WHOLE server (including /health) — this happened on
+# 2026-08-03: a deploy built on an app.py older than this fix reverted these
+# to async, causing a total deadlock of several hours in production. If they
+# become async again (e.g. via a deploy from an older version), the bug
+# returns. Always check with git diff before deploying.
 @app.get("/api/speakers")
 def list_speakers(
     authorization: str | None = Header(default=None),
@@ -801,12 +821,12 @@ def remove_speaker(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     if not deleted:
-        raise HTTPException(status_code=404, detail="Nincs ilyen beszélő-profil")
+        raise HTTPException(status_code=404, detail="No such speaker profile")
     return JSONResponse({"deleted": speaker_id})
 
 
 # ---------------------------------------------------------------------------
-# Meetings — metaadat Postgresben, média R2-ben (presigned URL-ek)
+# Meetings — metadata in Postgres, media in R2 (presigned URLs)
 # ---------------------------------------------------------------------------
 
 @app.post("/api/meetings")
@@ -836,7 +856,7 @@ def complete_meeting(
     try:
         return JSONResponse(mtg.complete_meeting(workspace, meeting_id))
     except KeyError:
-        raise HTTPException(status_code=404, detail="Nincs ilyen meeting")
+        raise HTTPException(status_code=404, detail="No such meeting")
 
 
 @app.get("/api/meetings")
@@ -861,7 +881,7 @@ def get_meeting(
     require_meetings()
     row = mtg.get_meeting(workspace, meeting_id)
     if row is None:
-        raise HTTPException(status_code=404, detail="Nincs ilyen meeting")
+        raise HTTPException(status_code=404, detail="No such meeting")
     return JSONResponse(row)
 
 
@@ -876,7 +896,7 @@ def patch_meeting(
     workspace = authorize(authorization, x_workspace_id, x_lavox_user_id)
     require_meetings()
     if not mtg.patch_meeting(workspace, meeting_id, payload):
-        raise HTTPException(status_code=404, detail="Nincs ilyen meeting vagy nincs frissíthető mező")
+        raise HTTPException(status_code=404, detail="No such meeting or no updatable field")
     return JSONResponse({"updated": meeting_id})
 
 
@@ -890,9 +910,10 @@ def delete_meeting(
     workspace = authorize(authorization, x_workspace_id, x_lavox_user_id)
     require_meetings()
     if not mtg.delete_meeting(workspace, meeting_id):
-        raise HTTPException(status_code=404, detail="Nincs ilyen meeting")
-    # A megosztás a meetinggel együtt hal — különben egy törölt meeting linkje
-    # "élő" maradna a DB-ben (a resolve ugyan 404-et adna, de ne tartsuk).
+        raise HTTPException(status_code=404, detail="No such meeting")
+    # The share dies with the meeting — otherwise a deleted meeting's link
+    # would remain "live" in the DB (resolve would return 404, but let's not
+    # keep it).
     try:
         shares.revoke_share(workspace, meeting_id)
     except Exception:
@@ -901,22 +922,22 @@ def delete_meeting(
 
 
 # ---------------------------------------------------------------------------
-# Megosztható linkek — a Personal tier értéke: fiók nélküli megtekintés.
+# Shareable links — the value of the Personal tier: viewing without an account.
 #
-# A /api/shared/{token} az EGYETLEN hitelesítés nélküli adat-végpont. Ezért:
-#   - a token a titok (256 bit), a DB csak SHA-256 lenyomatot tárol
-#   - a válasz SZŰKÍTETT vetület (shares._PUBLIC_FIELDS) — workspace, meet_code,
-#     participants, evaluation SOHA nem megy ki
-#   - IP-alapú rate limit a találgatás ellen
-#   - minden hibaeset EGYSÉGES 404 (ne lehessen megkülönböztetni lejártat a
-#     nem létezőtől)
-# Ezek sima `def`-ek (nem async) — blokkoló psycopg-t futtatnak; lásd a fenti
-# meetings-blokk figyelmeztetését.
+# /api/shared/{token} is the ONLY unauthenticated data endpoint. Therefore:
+#   - the token is the secret (256 bits), the DB stores only a SHA-256 digest
+#   - the response is a RESTRICTED projection (shares._PUBLIC_FIELDS) —
+#     workspace, meet_code, participants, evaluation NEVER go out
+#   - IP-based rate limit against guessing
+#   - every failure case is a UNIFORM 404 (an expired one must not be
+#     distinguishable from a non-existent one)
+# These are plain `def`s (not async) — they run blocking psycopg; see the
+# warning at the meetings block above.
 # ---------------------------------------------------------------------------
 
 def require_shares():
     if not shares.available():
-        raise HTTPException(status_code=503, detail="Megosztás nem elérhető")
+        raise HTTPException(status_code=503, detail="Sharing is not available")
 
 
 @app.post("/api/meetings/{meeting_id}/share")
@@ -930,7 +951,7 @@ def create_share(
     require_shares()
     res = shares.create_or_get_share(workspace, meeting_id)
     if res is None:
-        raise HTTPException(status_code=404, detail="Nincs ilyen meeting")
+        raise HTTPException(status_code=404, detail="No such meeting")
     return JSONResponse(res)
 
 
@@ -941,12 +962,12 @@ def rotate_share(
     x_workspace_id: str = Header(default="default"),
     x_lavox_user_id: str | None = Header(default=None),
 ):
-    """Új link kiadása a régi visszavonásával — ha a régi kiszivárgott."""
+    """Issue a new link while revoking the old one — if the old one leaked."""
     workspace = authorize(authorization, x_workspace_id, x_lavox_user_id)
     require_shares()
     res = shares.rotate_share(workspace, meeting_id)
     if res is None:
-        raise HTTPException(status_code=404, detail="Nincs ilyen meeting")
+        raise HTTPException(status_code=404, detail="No such meeting")
     return JSONResponse(res)
 
 
@@ -975,24 +996,24 @@ def delete_share(
 
 
 def _client_ip(request: Request) -> str:
-    """A HÍVÓ valódi IP-je.
+    """The CALLER's real IP.
 
-    A konténer nginx mögött fut, ezért a `request.client.host` MINDIG az nginx
-    konténer címe (172.19.0.x) — arra kulcsolt rate limit egyetlen közös vödröt
-    adna az összes látogatónak, és egyetlen találgató kizárná az összes valódi
-    nézőt. Az nginx a valódi címet `X-Real-IP`-ben küldi (lásd
+    The container runs behind nginx, so `request.client.host` is ALWAYS the
+    nginx container's address (172.19.0.x) — a rate limit keyed on that would
+    give all visitors a single shared bucket, and one guesser would lock out
+    all genuine viewers. nginx sends the real address in `X-Real-IP` (see
     /opt/utter/nginx.conf `proxy_set_header X-Real-IP $remote_addr`).
 
-    A fejlécet CSAK azért bízhatjuk meg, mert a :8040 port kizárólag
-    localhoston hallgat: kívülről nem lehet közvetlenül, hamisított fejléccel
-    megszólítani. Ha ez valaha változik, ez a feltevés is elesik.
+    We can trust the header ONLY because port :8040 listens exclusively on
+    localhost: it cannot be reached directly from outside with a forged
+    header. If that ever changes, this assumption falls too.
     """
     real = request.headers.get("x-real-ip")
     if real:
         return real.strip()
     fwd = request.headers.get("x-forwarded-for")
     if fwd:
-        # A lánc utolsó eleme az, amit a MI nginxünk fűzött hozzá.
+        # The last element of the chain is what OUR nginx appended.
         return fwd.split(",")[-1].strip()
     return request.client.host if request.client else "unknown"
 
@@ -1011,19 +1032,20 @@ def memory_ingest(
     background_tasks: BackgroundTasks,
     authorization: str | None = Header(default=None),
 ):
-    """A Hub diktálás-hookja: a kész diktátum a memóriába folyik.
+    """The Hub's dictation hook: the finished dictation flows into the memory.
 
-    A meetingek a /api/transcribe végén automatikusan ingestelődnek; a
-    diktálás viszont a Hub Rust-oldalán (whisper.cpp) készül, nem megy át
-    ezen a szerveren — ezért kell ez a külön beviteli kapu. Lokális gépen él
-    (a VPS-en _MEMORY_OK=False → 503), a :8040 csak localhostra kötött.
+    Meetings are ingested automatically at the end of /api/transcribe;
+    dictation, however, is produced on the Hub's Rust side (whisper.cpp) and
+    does not pass through this server — hence this separate intake gate.
+    Lives on the local machine (on the VPS _MEMORY_OK=False → 503), :8040 is
+    bound to localhost only.
     """
     check_auth(authorization)
     if not _MEMORY_OK:
-        raise HTTPException(status_code=503, detail="Lavox Memory nem elérhető ezen a példányon")
+        raise HTTPException(status_code=503, detail="Lavox Memory is not available on this instance")
     text = (body.text or "").strip()
     if len(text) < 25:
-        return JSONResponse({"skipped": "túl rövid diktátum"})
+        return JSONResponse({"skipped": "dictation too short"})
     from datetime import datetime as _dt, timezone as _tz
     now = _dt.now(_tz.utc)
     rid = body.id or f"dict_{now.strftime('%Y%m%d_%H%M%S')}"
@@ -1040,16 +1062,16 @@ def memory_ingest(
 
 @app.get("/api/shared/{token}")
 def view_shared(token: str, request: Request):
-    """PUBLIKUS — nincs hitelesítés, a link birtoklása a jogosultság."""
+    """PUBLIC — no authentication, possession of the link is the authorization."""
     require_shares()
     key = f"share:{_client_ip(request)}"
     if accounts.too_many_attempts(key):
-        raise HTTPException(status_code=429, detail="Túl sok kérés, próbáld később")
+        raise HTTPException(status_code=429, detail="Too many requests, try again later")
 
     data = shares.resolve_share(token)
     if data is None:
-        # Csak a SIKERTELEN próbálkozás számít a limitbe — így a valódi
-        # linkjét sokszor megnyitó néző nem tiltja ki magát, a találgató igen.
+        # Only FAILED attempts count toward the limit — so a viewer opening
+        # their genuine link many times does not ban themselves, a guesser does.
         accounts.record_attempt(key)
-        raise HTTPException(status_code=404, detail="Ez a link nem érvényes")
+        raise HTTPException(status_code=404, detail="This link is not valid")
     return JSONResponse(data)

@@ -1,19 +1,20 @@
-"""Megosztható meeting-linkek — fiók nélküli megtekintés.
+"""Shareable meeting links — viewing without an account.
 
-A Personal tier tényleges értéke: felveszel egy meetinget, küldesz egy linket,
-a másik fél regisztráció nélkül megnézi az átiratot és lejátssza a felvételt.
+The real value of the Personal tier: you record a meeting, send a link, and
+the other party views the transcript and plays the recording without
+registering.
 
-BIZTONSÁGI ALAPELVEK (ez az EGYETLEN hitelesítés nélküli adat-végpont):
+SECURITY PRINCIPLES (this is the ONLY unauthenticated data endpoint):
 
-1. A token maga a titok — `secrets.token_urlsafe(32)` (~256 bit). Az adatbázis
-   CSAK a SHA-256 lenyomatát tárolja, ahogy az api_tokens is: egy DB-szivárgás
-   így nem ad működő linkeket.
-2. A publikus vetület SZŰKÍTETT (`_PUBLIC_FIELDS`). A `workspace`, `meet_code`,
-   `participants`, `speaker_sources`, `evaluation`, `screenshots` SOHA nem megy
-   ki — ezek belső vagy harmadik feleket érintő adatok.
-3. Visszavonható (`revoked_at`) és opcionálisan lejáró (`expires_at`).
-4. A találgatás ellen a hívó oldalon IP-alapú rate limit van (app.py).
-5. A megtekintés nem módosít semmit a meetingen — csak számlálót léptet.
+1. The token itself is the secret — `secrets.token_urlsafe(32)` (~256 bits).
+   The database stores ONLY its SHA-256 digest, just like api_tokens: a DB
+   leak therefore yields no working links.
+2. The public projection is RESTRICTED (`_PUBLIC_FIELDS`). `workspace`,
+   `meet_code`, `participants`, `speaker_sources`, `evaluation`,
+   `screenshots` NEVER go out — these are internal or third-party data.
+3. Revocable (`revoked_at`) and optionally expiring (`expires_at`).
+4. Against guessing there is an IP-based rate limit on the caller side (app.py).
+5. Viewing modifies nothing on the meeting — it only bumps a counter.
 """
 
 from __future__ import annotations
@@ -30,14 +31,14 @@ import meetings as mtg
 
 PG_DSN = os.environ.get("LAVOX_PG_DSN", "")
 
-# Amit a megosztott nézet MEGKAPHAT. Minden más oszlop szándékosan kimarad.
+# What the shared view MAY receive. Every other column is deliberately omitted.
 _PUBLIC_FIELDS = ("title", "created_at", "duration_sec", "transcript", "speakers")
 
-# A megosztott lejátszási URL élettartama (s). Rövidebb, mint a bejelentkezett
-# nézeté (6 óra), mert ez határozza meg, mennyi idő alatt lép életbe egy
-# visszavonás a MÁR betöltött oldalakon. 30 perc: hosszú felvételt is végig
-# lehet nézni egy ülésben, de a visszavonás fél órán belül tényleg lezár.
-# (Az oldal újratöltése friss URL-t kér, tehát ez nem korlátozza a nézőt.)
+# Lifetime of the shared playback URL (s). Shorter than the logged-in view's
+# (6 hours), because it determines how long a revocation takes to take effect
+# on ALREADY loaded pages. 30 minutes: a long recording can still be watched
+# in one sitting, but a revocation really locks down within half an hour.
+# (Reloading the page requests a fresh URL, so this does not limit the viewer.)
 SHARED_URL_TTL = 1800
 
 SCHEMA_SQL = """
@@ -51,8 +52,8 @@ CREATE TABLE IF NOT EXISTS meeting_shares (
   view_count   integer NOT NULL DEFAULT 0,
   last_viewed_at timestamptz
 );
--- Meetingenként egyetlen ÉLŐ megosztás: az újbóli "Megosztás" ugyanazt a
--- linket adja vissza, nem érvényteleníti azt, amit a user már elküldött.
+-- A single LIVE share per meeting: clicking "Share" again returns the same
+-- link instead of invalidating the one the user has already sent out.
 CREATE UNIQUE INDEX IF NOT EXISTS meeting_shares_active_uq
   ON meeting_shares (workspace, meeting_id)
   WHERE revoked_at IS NULL;
@@ -79,15 +80,16 @@ def _token_hash(token: str) -> str:
 def create_or_get_share(
     workspace: str, meeting_id: str, expires_days: int | None = None
 ) -> dict[str, Any] | None:
-    """Élő megosztás visszaadása, vagy új létrehozása.
+    """Return the live share, or create a new one.
 
-    None, ha a meeting nem létezik ebben a workspace-ben (nem szivárogtatunk
-    létezés-információt más workspace meetingjeiről).
+    None if the meeting does not exist in this workspace (we do not leak
+    existence information about other workspaces' meetings).
 
-    FONTOS: ha már van élő megosztás, a NYERS token NEM állítható vissza (csak
-    a lenyomatát tároljuk). Ilyenkor `token=None`-t adunk vissza `exists=True`
-    jelzéssel — a hívó ebből tudja, hogy a link már kiadva, és ha új kell,
-    előbb vissza kell vonni a régit.
+    IMPORTANT: if a live share already exists, the RAW token CANNOT be
+    recovered (we only store its digest). In that case `token=None` is
+    returned with an `exists=True` flag — from this the caller knows the
+    link has already been issued, and if a new one is needed, the old one
+    must be revoked first.
     """
     if mtg.get_meeting(workspace, meeting_id) is None:
         return None
@@ -130,7 +132,7 @@ def create_or_get_share(
 def rotate_share(
     workspace: str, meeting_id: str, expires_days: int | None = None
 ) -> dict[str, Any] | None:
-    """A meglévő link visszavonása + új kiadása (ha a régi kiszivárgott)."""
+    """Revoke the existing link + issue a new one (if the old one leaked)."""
     if mtg.get_meeting(workspace, meeting_id) is None:
         return None
     revoke_share(workspace, meeting_id)
@@ -138,7 +140,7 @@ def rotate_share(
 
 
 def revoke_share(workspace: str, meeting_id: str) -> bool:
-    """Az élő megosztás visszavonása. True, ha volt mit visszavonni."""
+    """Revoke the live share. True if there was anything to revoke."""
     with _conn() as conn:
         cur = conn.execute(
             """UPDATE meeting_shares SET revoked_at=now()
@@ -149,7 +151,7 @@ def revoke_share(workspace: str, meeting_id: str) -> bool:
 
 
 def share_status(workspace: str, meeting_id: str) -> dict[str, Any] | None:
-    """A megosztás állapota a tulajdonosnak (token nélkül)."""
+    """The share's status for the owner (without the token)."""
     with _conn() as conn:
         row = conn.execute(
             """SELECT created_at, expires_at, view_count, last_viewed_at
@@ -169,11 +171,11 @@ def share_status(workspace: str, meeting_id: str) -> dict[str, Any] | None:
 
 
 def resolve_share(token: str) -> dict[str, Any] | None:
-    """PUBLIKUS feloldás — a link birtokosának adott, SZŰKÍTETT nézet.
+    """PUBLIC resolution — the RESTRICTED view given to the link holder.
 
-    None minden hibás esetben (ismeretlen/visszavont/lejárt token, törölt
-    meeting) — a hívó egységes 404-et ad, hogy a válasz ne árulja el, melyik
-    eset állt fenn.
+    None in every failure case (unknown/revoked/expired token, deleted
+    meeting) — the caller returns a uniform 404 so the response does not
+    reveal which case occurred.
     """
     if not token or len(token) < 20:
         return None
@@ -198,13 +200,13 @@ def resolve_share(token: str) -> dict[str, Any] | None:
         )
 
     full = mtg.get_meeting(workspace, meeting_id)
-    if full is None:  # a meetinget azóta törölték
+    if full is None:  # the meeting has been deleted since
         return None
 
-    # SZŰKÍTETT vetület — a whitelistán kívül semmi nem megy ki.
+    # RESTRICTED projection — nothing outside the whitelist goes out.
     out: dict[str, Any] = {k: full.get(k) for k in _PUBLIC_FIELDS}
-    # A lejátszási URL-t RÖVIDEBB élettartammal állítjuk elő, mint a
-    # bejelentkezett nézetben: egy kiadott presigned URL a link visszavonása
-    # után is működik a lejáratáig, tehát ez a visszavonás átfutási ideje.
+    # The playback URL is generated with a SHORTER lifetime than in the
+    # logged-in view: an issued presigned URL keeps working until its expiry
+    # even after the link is revoked, so this is the revocation lead time.
     out["media_urls"] = mtg.media_urls_for(full.get("media") or {}, SHARED_URL_TTL)
     return out

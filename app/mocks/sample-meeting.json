@@ -4,23 +4,23 @@
   "status": "final",
   "created_at": "2026-06-22T14:00:00Z",
   "duration_sec": 1830,
-  "language": "hu",
+  "language": "en",
   "source_app": "Meet",
   "media": {
     "audio_path": "captures/2026-06-22-meeting.m4a",
     "video_url": null
   },
   "speakers": [
-    { "id": "S1", "label": "Dávid", "is_me": true },
-    { "id": "S2", "label": "Ügyfél" }
+    { "id": "S1", "label": "David", "is_me": true },
+    { "id": "S2", "label": "Client" }
   ],
   "segments": [
-    { "start": 0.0, "end": 4.2, "speaker": "S1", "text": "Szia, köszönöm, hogy időt szakítottál erre." },
-    { "start": 4.5, "end": 9.1, "speaker": "S2", "text": "Persze, érdekel a megoldás, mondd a részleteket." },
-    { "start": 9.4, "end": 15.0, "speaker": "S1", "text": "A rendszer a meetingeket automatikusan jegyzeteli az Obsidianba." }
+    { "start": 0.0, "end": 4.2, "speaker": "S1", "text": "Hi, thanks for taking the time for this." },
+    { "start": 4.5, "end": 9.1, "speaker": "S2", "text": "Sure, I'm interested in the solution, tell me the details." },
+    { "start": 9.4, "end": 15.0, "speaker": "S1", "text": "The system automatically writes meeting notes into Obsidian." }
   ],
-  "summary": "Bevezető hívás: a kliens érdeklődik az automatizációs megoldás iránt; következő lépés ajánlat és demo.",
-  "action_items": ["Ajánlat küldése péntekig", "Demo időpont egyeztetése"],
-  "title": "Bevezető hívás – Ügyfél",
+  "summary": "Intro call: the client is interested in the automation solution; next step is a proposal and a demo.",
+  "action_items": ["Send the proposal by Friday", "Schedule a demo"],
+  "title": "Intro call – Client",
   "tags": ["sales", "discovery"]
 }

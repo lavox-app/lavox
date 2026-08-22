@@ -1,18 +1,19 @@
 fn main() {
-    // A gauth.rs `option_env!`-fel FORDÍTÁSKOR égeti be a Google desktop-kliens
-    // adatait. A cargo alapból nem tudja, hogy ezek az env-változók
-    // befolyásolják a fordítást, ezért kulcs-cserénél állott cache-ből
-    // dolgozna (és a régi/hiányzó kulcs maradna a bináriban). Ezek a
-    // direktívák kényszerítik az újrafordítást, ha az érték változik.
+    // gauth.rs bakes the Google desktop-client credentials in AT COMPILE TIME
+    // via `option_env!`. Cargo does not know by default that these env vars
+    // affect compilation, so after a key rotation it would build from a stale
+    // cache (and the old/missing key would stay in the binary). These
+    // directives force a rebuild whenever the value changes.
     println!("cargo:rerun-if-env-changed=LAVOX_DESKTOP_CLIENT_ID");
     println!("cargo:rerun-if-env-changed=LAVOX_DESKTOP_CLIENT_SECRET");
-    // helpers/syscap: Swift segéd a rendszerhang-felvételhez (ScreenCaptureKit).
-    // A lefordított bináris nincs verziókövetésben, de a tauri.conf erőforrásként
-    // várja — ha hiányzik vagy a forrás újabb nála, itt fordul le, hogy a puszta
-    // `cargo build` / `cargo test` is működjön friss klónon. Temp-fájlba fordítunk
-    // és atomikusan nevezünk át, hogy két párhuzamos build (pl. rust-analyzer
-    // külön target-dirrel) ne írhasson tört Mach-O-t ugyanarra az útvonalra.
-    // Nem-macOS targetnél kihagyjuk — ott a Tauri bundler ad értelmes hibát.
+    // helpers/syscap: Swift helper for system-audio capture (ScreenCaptureKit).
+    // The compiled binary is not under version control, but tauri.conf expects
+    // it as a resource — if it is missing or the source is newer, it is built
+    // here so a plain `cargo build` / `cargo test` works on a fresh clone. We
+    // compile to a temp file and rename atomically, so two parallel builds
+    // (e.g. rust-analyzer with its own target dir) cannot write a broken
+    // Mach-O to the same path. Skipped on non-macOS targets — there the Tauri
+    // bundler gives a meaningful error.
     println!("cargo:rerun-if-changed=helpers/syscap.swift");
     println!("cargo:rerun-if-changed=helpers/syscap");
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {

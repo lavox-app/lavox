@@ -1,5 +1,5 @@
-// A transcribe_wav Tauri-parancs visszatérési típusai (befagyasztott szerződés).
-// Megegyezik a Rust oldalon definiált TranscriptResult / TranscriptSegment alakkal.
+// Return types of the transcribe_wav Tauri command (frozen contract).
+// Matches the TranscriptResult / TranscriptSegment shapes defined on the Rust side.
 
 export interface TranscriptSegment {
   start_ms: number;
@@ -13,8 +13,8 @@ export interface TranscriptResult {
   full_text: string;
 }
 
-// A Rust CaptureResult tükre (model.rs) — a meetings-loop (lista → átirat →
-// összefoglaló → export) használja. A mezőnevek a serde-kimenettel egyeznek.
+// Mirror of the Rust CaptureResult (model.rs) — used by the meetings loop
+// (list → transcript → summary → export). Field names match the serde output.
 export interface CaptureSpeaker {
   id: string;
   label: string;
@@ -50,7 +50,7 @@ export interface CaptureResult {
   tags: string[];
 }
 
-// A meetings/index.json egy bejegyzése (Rust MeetingRecordEntry tükre).
+// One entry of meetings/index.json (mirror of the Rust MeetingRecordEntry).
 export interface MeetingEntry {
   id: string;
   title: string;

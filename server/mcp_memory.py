@@ -1,20 +1,21 @@
-"""Lavox Memory — MCP-szerver (M1: olvasás + fegyelmezett írás).
+"""Lavox Memory — MCP server (M1: reading + disciplined writing).
 
-A memória alapréteg; az interfész a Claude Code / ChatGPT / bármely MCP-kliens.
-A tool-nevek szándékosak: a `search` és `fetch` az OpenAI-kompatibilis páros
-(a ChatGPT Developer Mode nélkül elutasítja a szervert nélkülük, a Deep
-Research kizárólag ezt a kettőt hívja) — így M2-ben a remote HTTP kiadás
-tool-átnevezés nélkül megy.
+Memory is the base layer; the interface is Claude Code / ChatGPT / any MCP
+client. The tool names are deliberate: `search` and `fetch` are the
+OpenAI-compatible pair (ChatGPT rejects the server without them outside
+Developer Mode, and Deep Research calls only these two) — so the M2 remote
+HTTP release ships without renaming any tools.
 
-Az írás-toolok (remember/correct) fegyelmezettek: kötelező source-jelölés,
-duplikátum-gyanú jelzés, és a correct SOHA nem töröl — supersedes-láncot ír
-(a felülírt állítás visszakereshető marad). Ez a memory poisoning elleni
-védelem magja: minden bejegyzésről tudni kell, honnan jött, és semmi nem
-tűnhet el nyomtalanul.
+The write tools (remember/correct) are disciplined: mandatory source
+labeling, duplicate-suspicion warnings, and correct NEVER deletes — it
+writes a supersedes chain (the overridden assertion stays retrievable).
+This is the core of the defense against memory poisoning: every entry must
+be traceable to its origin, and nothing may vanish without a trace.
 
-A kutatás dokumentált tanulsága, hogy a modell a tool-leírás alapján magától
-ritkán nyúl a memóriához — ezért (a) az `instructions` mező is terel, (b) a
-leírások kimondják: MIELŐTT azt mondanád, hogy nem tudod, keress.
+A documented lesson of the research is that the model rarely reaches for
+memory on its own based on tool descriptions alone — hence (a) the
+`instructions` field also steers it, and (b) the descriptions state:
+BEFORE saying you don't know, search.
 """
 
 from __future__ import annotations

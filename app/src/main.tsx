@@ -6,9 +6,9 @@ import Notebook from "./Notebook";
 import CameraBubble from "./CameraBubble";
 import "./App.css";
 
-// ── EGYSZERI MIGRÁCIÓ: a régi "hangar-*" localStorage-kulcsok átvitele
-// "lavox-*"-ra (Lavox Hub átnevezés, 2026-07-23). A régi kulcs törlődik,
-// az érték megmarad — API-kulcs, téma, naptár-auth, minden beállítás él.
+// ── ONE-TIME MIGRATION: move the old "hangar-*" localStorage keys to
+// "lavox-*" (Lavox Hub rename, 2026-07-23). The old key is deleted, the
+// value is kept — API key, theme, calendar auth, every setting survives.
 try {
   for (const key of Object.keys(localStorage)) {
     if (key.startsWith("hangar-")) {
@@ -20,14 +20,14 @@ try {
     }
   }
 } catch {
-  /* localStorage nem elérhető — nincs teendő */
+  /* localStorage unavailable — nothing to do */
 }
 
-// Az ablakokat URL-paraméter alapján különböztetjük meg:
-//   ?window=overlay        → a pill overlay (bar)
-//   ?window=notebook       → a Lavox Notes jegyzetfüzet-ablak
-//   ?window=camera-bubble  → a webkamera-buborék (videó PiP)
-//   (egyéb)                → a fő app
+// Windows are distinguished by URL parameter:
+//   ?window=overlay        → the pill overlay (bar)
+//   ?window=notebook       → the Lavox Notes notebook window
+//   ?window=camera-bubble  → the webcam bubble (video PiP)
+//   (anything else)        → the main app
 const search = window.location.search;
 const which = search.includes("camera-bubble")
   ? "camera-bubble"

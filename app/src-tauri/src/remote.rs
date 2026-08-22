@@ -1,17 +1,17 @@
-//! Remote transcription + diarizáció kliens — a self-hosted / Lavox-hosted
-//! Lavox szerver (`server/app.py`) hívása, válasz leképezése a
-//! `model::CaptureResult` (Segment/Speaker) structokra.
+//! Remote transcription + diarization client — calls the self-hosted /
+//! Lavox-hosted Lavox server (`server/app.py`) and maps the response onto the
+//! `model::CaptureResult` (Segment/Speaker) structs.
 //!
-//! Két üzemmódot szolgál ki ugyanazzal a kóddal:
-//!  - local/self-hosted (fizetős tier): a user saját szerver-URL-je
-//!  - cloud (ingyenes tier): Lavox-hosted URL + workspace-azonosító
+//! Serves two modes with the same code:
+//!  - local/self-hosted (paid tier): the user's own server URL
+//!  - cloud (free tier): Lavox-hosted URL + workspace identifier
 
 use serde::{Deserialize, Serialize};
 
 use crate::model::{CaptureResult, CaptureType, Media, Segment, Speaker, Status};
 
 // ---------------------------------------------------------------------------
-// Szerver-konfiguráció (perzisztens, Application Support)
+// Server configuration (persistent, Application Support)
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -19,7 +19,7 @@ pub struct ServerConfig {
     pub url: String,
     #[serde(default)]
     pub api_key: String,
-    /// Multi-tenant szkópolás a cloud tieren; lokálban maradhat "default".
+    /// Multi-tenant scoping on the cloud tier; locally it may stay "default".
     #[serde(default = "default_workspace")]
     pub workspace: String,
 }
@@ -60,7 +60,7 @@ pub fn save_config(cfg: &ServerConfig) -> Result<(), String> {
 }
 
 // ---------------------------------------------------------------------------
-// A szerver válasz-formátuma
+// The server's response format
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Deserialize)]
@@ -76,7 +76,7 @@ struct ApiSegment {
     start: f64,
     end: f64,
     text: String,
-    /// Csak diarize=true esetén jön.
+    /// Only present when diarize=true.
     speaker: Option<String>,
 }
 
@@ -91,12 +91,13 @@ struct ApiTranscribeResponse {
 }
 
 // ---------------------------------------------------------------------------
-// Mic + rendszerhang sávok keverése egy 16 kHz mono WAV-ba
+// Mixing the mic + system-audio tracks into one 16 kHz mono WAV
 // ---------------------------------------------------------------------------
 
-/// Adott idő-szakaszok kivágása egy WAV-ból és összefűzése egyetlen 16 kHz
-/// mono mintafájlba (a rename-harvest hangtanulásához). A spans (start, end)
-/// párok másodpercben; max_total_sec-nél megállunk. Vissza: volt-e elég anyag.
+/// Cuts the given time spans out of a WAV and concatenates them into a single
+/// 16 kHz mono sample file (for rename-harvest voice learning). Spans are
+/// (start, end) pairs in seconds; we stop at max_total_sec. Returns whether
+/// there was enough material.
 pub fn cut_spans_to_wav(
     input: &str,
     spans: &[(f64, f64)],
@@ -117,7 +118,7 @@ pub fn cut_spans_to_wav(
         }
         collected.extend_from_slice(&samples[i0..i1]);
     }
-    // Legalább ~5s beszéd kell egy értelmes hangmintához.
+    // A meaningful voice sample needs at least ~5s of speech.
     if (collected.len() as f64 / sr as f64) < 5.0 {
         return Ok(false);
     }
@@ -137,8 +138,8 @@ pub fn cut_spans_to_wav(
     Ok(true)
 }
 
-/// Egyetlen sáv 16 kHz mono WAV-ba írása (feltöltés előtti tömörítés — a nyers
-/// 48 kHz-es sávok fölöslegesen nagyok, a szerver úgyis 16 kHz-en dolgozik).
+/// Writes a single track as 16 kHz mono WAV (pre-upload compression — the raw
+/// 48 kHz tracks are needlessly large, and the server works at 16 kHz anyway).
 pub fn resample_track(input: &str, out_path: &str) -> Result<(), String> {
     let samples = crate::transcribe::load_wav_16khz_mono(input)?;
     let spec = hound::WavSpec {
@@ -156,15 +157,15 @@ pub fn resample_track(input: &str, out_path: &str) -> Result<(), String> {
     writer.finalize().map_err(|e| e.to_string())
 }
 
-/// A meeting két sávja (mic = én, system = a többiek) egyetlen kevert fájlba.
-/// Ha csak az egyik létezik, azt írjuk ki 16 kHz monóként.
+/// The meeting's two tracks (mic = me, system = the others) into a single mixed
+/// file. If only one exists, that one is written out as 16 kHz mono.
 pub fn mix_tracks(mic: Option<&str>, system: Option<&str>, out_path: &str) -> Result<(), String> {
     let load = |p: &str| crate::transcribe::load_wav_16khz_mono(p);
     let (a, b) = match (mic, system) {
         (Some(m), Some(s)) => (load(m).ok(), load(s).ok()),
         (Some(m), None) => (load(m).ok(), None),
         (None, Some(s)) => (load(s).ok(), None),
-        (None, None) => return Err("Nincs hangsáv a felvételben".to_string()),
+        (None, None) => return Err("No audio track in the recording".to_string()),
     };
     let mixed: Vec<f32> = match (a, b) {
         (Some(a), Some(b)) => {
@@ -177,7 +178,7 @@ pub fn mix_tracks(mic: Option<&str>, system: Option<&str>, out_path: &str) -> Re
                 .collect()
         }
         (Some(a), None) => a,
-        _ => return Err("Egyik hangsáv sem olvasható".to_string()),
+        _ => return Err("Neither audio track is readable".to_string()),
     };
 
     let spec = hound::WavSpec {
@@ -196,7 +197,7 @@ pub fn mix_tracks(mic: Option<&str>, system: Option<&str>, out_path: &str) -> Re
 }
 
 // ---------------------------------------------------------------------------
-// HTTP hívások
+// HTTP calls
 // ---------------------------------------------------------------------------
 
 fn client() -> reqwest::Client {
@@ -207,7 +208,7 @@ fn client() -> reqwest::Client {
 }
 
 async fn file_part(path: &str) -> Result<reqwest::multipart::Part, String> {
-    let bytes = tokio::fs::read(path).await.map_err(|e| format!("fájl olvasás: {e}"))?;
+    let bytes = tokio::fs::read(path).await.map_err(|e| format!("file read: {e}"))?;
     let name = std::path::Path::new(path)
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
@@ -233,19 +234,19 @@ async fn error_for_status(resp: reqwest::Response) -> Result<reqwest::Response, 
     let status = resp.status();
     let body = resp.text().await.unwrap_or_default();
     let detail = if body.trim().is_empty() {
-        status.canonical_reason().unwrap_or("ismeretlen hiba").to_string()
+        status.canonical_reason().unwrap_or("unknown error").to_string()
     } else {
         body
     };
-    Err(format!("Szerver hiba ({status}): {detail}"))
+    Err(format!("Server error ({status}): {detail}"))
 }
 
-/// Meeting-audio → diarizált átirat → CaptureResult.
+/// Meeting audio → diarized transcript → CaptureResult.
 ///
-/// KÉT-SÁVOS mód (`mic_path` megadva): a rendszerhang (`audio_path` = a
-/// többiek) és a mikrofon (= a felvevő) KÜLÖN megy fel — az "én vs. ők"
-/// kérdés így determinisztikus, platformtól függetlenül. A régi kevert-sávos
-/// hívás (mic_path=None) visszafelé kompatibilisen működik.
+/// TWO-TRACK mode (`mic_path` given): the system audio (`audio_path` = the
+/// others) and the microphone (= the recording user) are uploaded SEPARATELY —
+/// making the "me vs. them" question deterministic, platform-independently.
+/// The old mixed-track call (mic_path=None) keeps working backwards-compatibly.
 pub async fn transcribe_diarized(
     cfg: &ServerConfig,
     audio_path: &str,
@@ -269,33 +270,33 @@ pub async fn transcribe_diarized(
     if let Some(mp) = mic_path {
         form = form.part("mic_file", file_part(mp).await?);
     }
-    // Hangtanulás (harvest) kapcsoló — a Beállításokban kikapcsolható.
+    // Voice-learning (harvest) switch — can be disabled in Settings.
     form = form.text("harvest", if harvest { "true" } else { "false" });
-    // AUTO-SAVE: a szerver a transzkripció után magától felhőbe menti a
-    // felvételt (Postgres+R2) → a webappban azonnal megjelenik, kézi
-    // feltöltés nélkül. A metaadatot itt adjuk át.
+    // AUTO-SAVE: after transcription the server saves the recording to the
+    // cloud on its own (Postgres+R2) → it appears in the webapp immediately,
+    // without a manual upload. The metadata is passed here.
     form = form.text("auto_save", "true");
     form = form.text("meeting_id", capture_id.to_string());
     form = form.text("created_at", created_at.to_string());
     if let Some(t) = title.clone() {
         form = form.text("title", t);
     }
-    // Jelölt-nevek (naptár-résztvevők) a szöveg-alapú név-következtetéshez.
+    // Candidate names (calendar attendees) for text-based name inference.
     if let Some(names) = candidate_names {
         if let Ok(json) = serde_json::to_string(names) {
             form = form.text("candidate_names", json);
         }
     }
-    // Meet CC feliratok (ha vannak) — a szerver fúziója ezekből rendel valódi
-    // beszélő-neveket a whisper-szegmensekhez.
+    // Meet CC captions (if any) — the server's fusion uses them to assign real
+    // speaker names to the whisper segments.
     if let Some(cp) = captions_path {
         if let Ok(json) = std::fs::read_to_string(cp) {
             form = form.text("captions_json", json);
         }
     }
     let req = apply_headers(client().post(&url), cfg).multipart(form);
-    let resp = error_for_status(req.send().await.map_err(|e| format!("kapcsolat: {e}"))?).await?;
-    let api: ApiTranscribeResponse = resp.json().await.map_err(|e| format!("válasz parse: {e}"))?;
+    let resp = error_for_status(req.send().await.map_err(|e| format!("connection: {e}"))?).await?;
+    let api: ApiTranscribeResponse = resp.json().await.map_err(|e| format!("response parse: {e}"))?;
 
     let speakers: Vec<Speaker> = api
         .speakers
@@ -346,8 +347,8 @@ pub async fn transcribe_diarized(
     })
 }
 
-/// Beszélő-enrollment: hangminta feltöltése névvel. A szerver JSON-ját adjuk
-/// vissza nyersen (id, name, is_me, num_samples) — a frontend megjeleníti.
+/// Speaker enrollment: uploads a voice sample with a name. Returns the server's
+/// JSON raw (id, name, is_me, num_samples) — the frontend renders it.
 pub async fn enroll_speaker(
     cfg: &ServerConfig,
     audio_path: &str,
@@ -360,46 +361,47 @@ pub async fn enroll_speaker(
         .text("name", name.to_string())
         .text("is_me", if is_me { "true" } else { "false" });
     let req = apply_headers(client().post(&url), cfg).multipart(form);
-    let resp = error_for_status(req.send().await.map_err(|e| format!("kapcsolat: {e}"))?).await?;
+    let resp = error_for_status(req.send().await.map_err(|e| format!("connection: {e}"))?).await?;
     resp.text().await.map_err(|e| e.to_string())
 }
 
-/// A workspace enrollment-profiljai (JSON string a frontendnek).
+/// The workspace's enrollment profiles (JSON string for the frontend).
 pub async fn list_speakers(cfg: &ServerConfig) -> Result<String, String> {
     let url = format!("{}/api/speakers", cfg.url.trim_end_matches('/'));
     let resp = error_for_status(
         apply_headers(client().get(&url), cfg)
             .send()
             .await
-            .map_err(|e| format!("kapcsolat: {e}"))?,
+            .map_err(|e| format!("connection: {e}"))?,
     )
     .await?;
     resp.text().await.map_err(|e| e.to_string())
 }
 
-/// Enrollment-profil törlése.
+/// Deletes an enrollment profile.
 pub async fn delete_speaker(cfg: &ServerConfig, speaker_id: &str) -> Result<String, String> {
     let url = format!("{}/api/speakers/{}", cfg.url.trim_end_matches('/'), speaker_id);
     let resp = error_for_status(
         apply_headers(client().delete(&url), cfg)
             .send()
             .await
-            .map_err(|e| format!("kapcsolat: {e}"))?,
+            .map_err(|e| format!("connection: {e}"))?,
     )
     .await?;
     resp.text().await.map_err(|e| e.to_string())
 }
 
 // ---------------------------------------------------------------------------
-// Felhő-párosítás (device-code flow) — a webapp/backend fele: lásd
-// lavox-web/docs/hub-pairing.md. A Hub itt csak KÉT hívást tesz: a kód
-// beváltása egyszer, utána periodikus heartbeat, amíg fut.
+// Cloud pairing (device-code flow) — for the webapp/backend side see
+// lavox-web/docs/hub-pairing.md. The Hub makes only TWO calls here: redeem
+// the code once, then a periodic heartbeat while it runs.
 // ---------------------------------------------------------------------------
 
-/// A Lavox-hosted (ingyenes/cloud tier) backend rögzített címe. Sikeres
-/// párosítás után ide állítjuk a ServerConfig.url-t is — onnantól a Hub a
-/// meglévő remote_transcribe_meeting/enroll_speaker/stb. hívásokat is emiatt
-/// erre a szerverre küldi, a device-tokennel (cfg.api_key) hitelesítve.
+/// Fixed address of the Lavox-hosted (free/cloud tier) backend. After a
+/// successful pairing the ServerConfig.url is pointed here too — from then on
+/// the Hub sends the existing remote_transcribe_meeting/enroll_speaker/etc.
+/// calls to this server as well, authenticated with the device token
+/// (cfg.api_key).
 const LAVOX_CLOUD_URL: &str = "https://api.lavox.cloud";
 
 #[derive(Debug, Deserialize)]
@@ -408,8 +410,8 @@ struct PairClaimResponse {
     workspace: String,
 }
 
-/// A webapp onboardingjában megjelenő pároztató kód beváltása eszköz-tokenre.
-/// Auth nélkül hívható (a kód maga a titok) — 404, ha érvénytelen/lejárt.
+/// Redeems the pairing code shown in the webapp onboarding for a device token.
+/// Callable without auth (the code itself is the secret) — 404 if invalid/expired.
 pub async fn pair_claim(code: &str) -> Result<ServerConfig, String> {
     let url = format!("{LAVOX_CLOUD_URL}/api/hub/pair/claim");
     let resp = client()
@@ -417,15 +419,15 @@ pub async fn pair_claim(code: &str) -> Result<ServerConfig, String> {
         .json(&serde_json::json!({ "code": code }))
         .send()
         .await
-        .map_err(|e| format!("kapcsolat: {e}"))?;
+        .map_err(|e| format!("connection: {e}"))?;
     if resp.status() == reqwest::StatusCode::NOT_FOUND {
-        return Err("Érvénytelen vagy lejárt párosító kód.".to_string());
+        return Err("Invalid or expired pairing code.".to_string());
     }
     let claim: PairClaimResponse = error_for_status(resp)
         .await?
         .json()
         .await
-        .map_err(|e| format!("válasz parse: {e}"))?;
+        .map_err(|e| format!("response parse: {e}"))?;
     Ok(ServerConfig {
         url: LAVOX_CLOUD_URL.to_string(),
         api_key: claim.token,
@@ -433,8 +435,8 @@ pub async fn pair_claim(code: &str) -> Result<ServerConfig, String> {
     })
 }
 
-/// Egyetlen heartbeat-ütés az eszköz-tokennel — a hívó (start_heartbeat_loop)
-/// hívja periodikusan, amíg a Hub fut. 401 esetén a token visszavonva/érvénytelen.
+/// A single heartbeat with the device token — the caller (start_heartbeat_loop)
+/// invokes it periodically while the Hub runs. 401 means the token was revoked/invalid.
 async fn heartbeat_once(cfg: &ServerConfig) -> Result<(), String> {
     let url = format!("{LAVOX_CLOUD_URL}/api/hub/heartbeat");
     let resp = client()
@@ -442,15 +444,15 @@ async fn heartbeat_once(cfg: &ServerConfig) -> Result<(), String> {
         .header("Authorization", format!("Bearer {}", cfg.api_key))
         .send()
         .await
-        .map_err(|e| format!("kapcsolat: {e}"))?;
+        .map_err(|e| format!("connection: {e}"))?;
     error_for_status(resp).await?;
     Ok(())
 }
 
-/// Háttér-loop: 30 másodpercenként újraolvassa a konfigot (hogy a friss
-/// párosítást azonnal felvegye újraindítás nélkül), és ha van eszköz-token
-/// és a szerver a Lavox-felhő, heartbeatet küld. Csendben kihagyja magát
-/// self-hosted (nem-cloud) konfignál — ott nincs mit heartbeatelni.
+/// Background loop: re-reads the config every 30 seconds (so a fresh pairing
+/// is picked up immediately without a restart), and if there is a device token
+/// and the server is the Lavox cloud, sends a heartbeat. Silently skips itself
+/// on a self-hosted (non-cloud) config — nothing to heartbeat there.
 pub fn start_heartbeat_loop() {
     tauri::async_runtime::spawn(async move {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));

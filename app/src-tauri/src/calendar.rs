@@ -61,7 +61,7 @@ pub async fn check_upcoming(token: &str) -> Result<Vec<UpcomingMeeting>, String>
         ])
         .send()
         .await
-        .map_err(|e| format!("HTTP hiba: {e}"))?;
+        .map_err(|e| format!("HTTP error: {e}"))?;
 
     if !res.status().is_success() {
         let status = res.status();
@@ -87,7 +87,7 @@ pub async fn check_upcoming(token: &str) -> Result<Vec<UpcomingMeeting>, String>
                 id: item["id"].as_str()?.to_string(),
                 title: item["summary"]
                     .as_str()
-                    .unwrap_or("(Nincs cím)")
+                    .unwrap_or("(No title)")
                     .to_string(),
                 start: start_str.to_string(),
                 end: end_str.to_string(),
@@ -100,10 +100,10 @@ pub async fn check_upcoming(token: &str) -> Result<Vec<UpcomingMeeting>, String>
     Ok(meetings)
 }
 
-/// A felvétel idősávjával átfedő naptár-esemény RÉSZTVEVŐ-NEVEI — a
-/// beszélő-azonosítás jelölt-poolja. FIGYELEM: a meghívott ≠ jelenlévő; a
-/// szerver ezt a listát csak megerősítő evidenciával (önbemutatkozás,
-/// megszólítás) együtt használhatja név-kiosztásra.
+/// ATTENDEE NAMES of the calendar event overlapping the recording's time
+/// window — the candidate pool for speaker identification. NOTE: invited ≠
+/// present; the server may only use this list for name assignment together
+/// with confirming evidence (self-introduction, being addressed by name).
 pub async fn attendees_for_window(
     token: &str,
     start_rfc3339: &str,
@@ -122,7 +122,7 @@ pub async fn attendees_for_window(
         ])
         .send()
         .await
-        .map_err(|e| format!("HTTP hiba: {e}"))?;
+        .map_err(|e| format!("HTTP error: {e}"))?;
     if !res.status().is_success() {
         return Err(format!("Google API {}", res.status()));
     }
@@ -131,7 +131,7 @@ pub async fn attendees_for_window(
     let mut names: Vec<String> = Vec::new();
     for item in data["items"].as_array().unwrap_or(&empty) {
         for a in item["attendees"].as_array().unwrap_or(&empty) {
-            // displayName ha van; az email local-partja fallback.
+            // displayName if present; the email's local part as fallback.
             let name = a["displayName"]
                 .as_str()
                 .map(String::from)
@@ -159,12 +159,12 @@ pub fn start_polling(app: tauri::AppHandle, state: SharedCalendarState) {
 
             let auto_record = { state.lock().await.auto_record };
 
-            // A tokent a gauth adja: ha lejárt, MAGÁTÓL frissíti a refresh
-            // tokennel. (Korábban itt csak a memóriában tárolt, 1 órás GIS-token
-            // volt — lejárat után a poller némán, jelzés nélkül leállt.)
+            // The token comes from gauth: if expired, it refreshes ITSELF with
+            // the refresh token. (Previously only the in-memory, 1-hour GIS
+            // token lived here — after expiry the poller stopped silently.)
             let token = match crate::gauth::valid_access_token().await {
                 Some(t) => {
-                    // A megosztott állapot is kövesse, hogy a UI konzisztens legyen.
+                    // Keep the shared state in sync so the UI stays consistent.
                     let mut s = state.lock().await;
                     s.token = Some(CalendarToken {
                         access_token: t.clone(),
@@ -207,7 +207,7 @@ pub fn start_polling(app: tauri::AppHandle, state: SharedCalendarState) {
                     }
                 }
                 Err(e) => {
-                    eprintln!("[calendar] Polling hiba: {e}");
+                    eprintln!("[calendar] polling error: {e}");
                 }
             }
         }

@@ -2,6 +2,8 @@ import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { Settings as SettingsIcon, Calendar, Mic, Sparkles, Globe } from "lucide-react";
+// NOTE: t() keys are Hungarian source strings (gettext-style, see lib/i18n.ts)
+// — keep them byte-identical; the English UI copy lives in lib/i18n-en.ts.
 import { t, getUiLang, setUiLang, type UiLang } from "../lib/i18n";
 import {
   getHotkey, setHotkey, comboFromEvent, formatCombo,
@@ -21,17 +23,17 @@ interface Props {
 }
 
 export function SettingsView({ modelPath, mics }: Props) {
-  // A naptár-állapot a Rust token-tárból jön (nem localStorage) — a refresh
-  // token ott él, és a poller magától frissít.
+  // Calendar status comes from the Rust token store (not localStorage) — the
+  // refresh token lives there, and the poller refreshes on its own.
   const [cal, setCal] = useState<CalendarStatus>({ configured: false, connected: false, email: null });
   const [autoRecord, setAutoRecord] = useState(loadAutoRecord);
-  // Hangtanulás (harvest): alapból BE; a kapcsoló kikapcsolja a profil-építést.
+  // Voice learning (harvest): ON by default; the toggle disables profile building.
   const [harvestOn, setHarvestOn] = useState(() => localStorage.getItem("lavox-harvest") !== "false");
   const [loggingIn, setLoggingIn] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastMeeting, setLastMeeting] = useState<MeetingEvent | null>(null);
   const [recording, setRecording] = useState(false);
-  // A Meet-bővítmény kapcsolat-állapota (5 mp-enként frissül).
+  // The Meet extension's connection status (refreshes every 5s).
   const [bridge, setBridge] = useState<{ lastEventMs: number; lastEventKind: string }>({
     lastEventMs: 0,
     lastEventKind: "",
@@ -42,7 +44,7 @@ export function SettingsView({ modelPath, mics }: Props) {
   const [hotkey, setHotkeyState] = useState<HotkeyCombo | null>(null);
   const [capturing, setCapturing] = useState(false);
 
-  // Modell-letöltés (first-run) — a Rust "model-download-progress" eseményét követi.
+  // Model download (first-run) — follows Rust's "model-download-progress" event.
   const [dlActive, setDlActive] = useState(false);
   const [dlPercent, setDlPercent] = useState(0);
   const [dlError, setDlError] = useState("");
@@ -53,7 +55,7 @@ export function SettingsView({ modelPath, mics }: Props) {
       (e) => {
         const { downloaded, total, done } = e.payload;
         if (total > 0) setDlPercent(Math.min(100, Math.round((downloaded / total) * 100)));
-        if (done) window.location.reload(); // az App újra futtatja a find_model-t
+        if (done) window.location.reload(); // the App re-runs find_model
       },
     );
     return () => {
@@ -78,9 +80,9 @@ export function SettingsView({ modelPath, mics }: Props) {
     syncTokenToBackend();
     calendarStatus().then(setCal);
     getHotkey().then(setHotkeyState);
-    // Az auto-record kezdőértéke a BACKENDBŐL (perzisztens, túléli az újratelepítést).
+    // Auto-record's initial value from the BACKEND (persistent, survives a reinstall).
     invoke<boolean>("get_auto_record").then(setAutoRecord).catch(() => {});
-    // Meeting-bővítmény kapcsolat-állapot pollozása (a felhasználó lássa, él-e).
+    // Poll the Meet extension's connection status (so the user can see it's alive).
     const pollBridge = () =>
       invoke<{ lastEventMs: number; lastEventKind: string }>("get_bridge_status")
         .then(setBridge)
@@ -122,7 +124,7 @@ export function SettingsView({ modelPath, mics }: Props) {
     setLoggingIn(true);
     setError(null);
     try {
-      // A rendszer-böngésző nyílik meg; a hívás addig vár, míg a user végez.
+      // The system browser opens; the call waits until the user finishes.
       await googleLogin();
       setCal(await calendarStatus());
     } catch (e: any) {
@@ -154,7 +156,7 @@ export function SettingsView({ modelPath, mics }: Props) {
         <p className="view-subtitle">{t("Rendszer-állapot, naptár és felvételi beállítások.")}</p>
       </header>
 
-      {/* --- Felület nyelve / Interface language --- */}
+      {/* --- Interface language --- */}
       <h2 className="section-label">
         <Globe size={16} strokeWidth={1.75} style={{ marginRight: 6, verticalAlign: -2 }} />
         {t("Felület nyelve")} / Interface language
@@ -178,8 +180,8 @@ export function SettingsView({ modelPath, mics }: Props) {
         Google Calendar
       </h2>
       {!cal.configured ? (
-        // Nincs Google desktop-kliens a buildben → a gomb nem működne. Ne
-        // mutassunk hamis bejelentkezés-lehetőséget (ez volt a régi hiba).
+        // No Google desktop client in this build → the button wouldn't work.
+        // Don't show a fake sign-in option (that was the old bug).
         <p className="setting-hint">
           {t("Ebben a buildben nincs beállítva a Google-kliens — a naptár-összekötés nem elérhető.")}
         </p>
@@ -226,11 +228,11 @@ export function SettingsView({ modelPath, mics }: Props) {
           : t("Értesítés érkezik meeting előtt — manuálisan indíthatod a rögzítést.")}
       </p>
 
-      {/* --- Meet-bővítmény kapcsolat-állapot (diagnosztika) --- */}
+      {/* --- Meet extension connection status (diagnostics) --- */}
       {(() => {
         const now = Date.now();
         const seenMs = bridge.lastEventMs > 0 ? now - bridge.lastEventMs : -1;
-        // "Aktív" ha 10 percen belül volt esemény (belépés/kilépés/heartbeat).
+        // "Active" if there was an event within 10 minutes (join/leave/heartbeat).
         const connected = seenMs >= 0 && seenMs < 10 * 60 * 1000;
         return (
           <div className={`bridge-status ${connected ? "ok" : "warn"}`}>
@@ -264,7 +266,7 @@ export function SettingsView({ modelPath, mics }: Props) {
         </div>
       )}
 
-      {/* --- Aktuális meeting állapot --- */}
+      {/* --- Current meeting status --- */}
       {lastMeeting && (
         <div className="setting-meeting-card">
           <strong>{lastMeeting.title}</strong>
@@ -273,17 +275,17 @@ export function SettingsView({ modelPath, mics }: Props) {
         </div>
       )}
 
-      {/* --- AI (meeting-összefoglaló) ---
-          A diktálás-átíró profilok és a Prompter 2026-08-04-én kikerültek
-          (félkészek voltak). Az OpenRouter-kulcs marad: a meeting-összefoglaló
-          (lib/summarize.ts) használja. */}
+      {/* --- AI (meeting summary) ---
+          The dictation rewrite profiles and the Prompter were removed on
+          2026-08-04 (they were half-finished). The OpenRouter key stays: the
+          meeting summary (lib/summarize.ts) uses it. */}
       <h2 className="section-label" style={{ marginTop: "2rem" }}>
         <Sparkles size={16} strokeWidth={1.75} style={{ marginRight: 6, verticalAlign: -2 }} />
         {t("AI")}
       </h2>
       <p className="setting-hint">{t("A meeting-összefoglalóhoz kell. Saját kulcs, lokálisan tárolva.")}</p>
 
-      {/* API kulcs */}
+      {/* API key */}
       <p className="setting-hint" style={{ marginTop: "0.875rem", marginBottom: "0.375rem" }}>{t("OpenRouter API kulcs")}</p>
       <div className="setting-row">
         <input
@@ -307,7 +309,7 @@ export function SettingsView({ modelPath, mics }: Props) {
       </div>
       <p className="setting-hint">{t("Lokálisan tárolódik, nem kerül szerverre.")}</p>
 
-      {/* --- Hangtanulás (harvest) kapcsoló --- */}
+      {/* --- Voice learning (harvest) toggle --- */}
       <div className="setting-row" style={{ marginTop: 12 }}>
         <div className="setting-info">
           <span>{t("Automatikus hangtanulás")}</span>
@@ -329,10 +331,10 @@ export function SettingsView({ modelPath, mics }: Props) {
         {t("A megnevezett beszélők hangját a rendszer megjegyzi, és a következő felvételen felirat nélkül is felismeri. A tárolt profilok lent kezelhetők/törölhetők.")}
       </p>
 
-      {/* --- Beszélők (diarizáció-enrollment) --- */}
+      {/* --- Speakers (diarization enrollment) --- */}
       <SpeakersPanel />
 
-      {/* --- Modell --- */}
+      {/* --- Model --- */}
       <h2 className="section-label" style={{ marginTop: "2rem" }}>{t("Modell")}</h2>
       {modelPath ? (
         <p className="full-text">{modelPath}</p>

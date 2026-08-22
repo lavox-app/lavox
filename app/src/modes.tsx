@@ -1,7 +1,11 @@
-// A 4 működési mód központi definíciója — egyetlen forrás, amit a Sidebar,
-// az App fő nézete és az overlay kör-menüje is használ.
-// A capture-típus színek a dashboarddal egyeznek:
-//   diktálás = indigo (#6366f1), meeting = teal (#0d9488), jegyzet = amber (#d97706).
+// Central definition of the 4 operating modes — a single source used by the
+// Sidebar, the App's main view and the overlay's radial menu.
+// Capture-type colors match the dashboard:
+//   dictation = indigo (#6366f1), meeting = teal (#0d9488), note = amber (#d97706).
+//
+// NOTE: `label` and `description` are rendered through t() (see lib/i18n.ts),
+// which uses the Hungarian source string as the dictionary key — keep these
+// Hungarian values byte-identical; the English text lives in lib/i18n-en.ts.
 import type { ComponentType } from "react";
 import { Mic, Video, Users, NotebookPen } from "lucide-react";
 
@@ -10,15 +14,15 @@ export type ModeId = "dictation" | "video" | "meeting" | "note";
 export interface ModeDef {
   id: ModeId;
   label: string;
-  // lucide-react ikon (props: size, strokeWidth, color...)
+  // lucide-react icon (props: size, strokeWidth, color...)
   icon: ComponentType<{ size?: number; strokeWidth?: number }>;
-  // a mód accent-színe (CSS-érték) — pötty / badge ehhez igazodik
+  // the mode's accent color (CSS value) — dot / badge follows it
   color: string;
-  // halvány háttér a badge-hez (a típus saját light-bg-je)
+  // faint background for the badge (the type's own light bg)
   bg: string;
-  // rövid leírás a nézet fejlécében / a shell placeholderben
+  // short description in the view header / the shell placeholder
   description: string;
-  // true = működő funkció; false = UI-shell (backend külön jön)
+  // true = working feature; false = UI shell (backend comes separately)
   ready: boolean;
 }
 

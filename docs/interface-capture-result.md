@@ -6,14 +6,14 @@ version: 1.0.0-draft
 tags: [project/capture-aios, interface]
 ---
 
-# `CaptureResult` — a központi adat-interfész
+# `CaptureResult` — the central data interface
 
-> [!note] Ez a motor → export adatmodell.
-> A capture-motor ezt **előállítja**, az ObsidianExporter ezt **fogyasztja**. Amíg az alak fix, a UI/export mock-adattal is fejleszthető. **Verziózott**: új opcionális mező nem törő; mező törlése/átnevezése breaking → verzió-bump.
+> [!note] This is the engine → export data model.
+> The capture engine **produces** it, the ObsidianExporter **consumes** it. As long as the shape is fixed, the UI/export can be developed against mock data. **Versioned**: adding a new optional field is non-breaking; deleting/renaming a field is breaking → version bump.
 
-Kapcsolódó: [[PROJECT-BRIEF]] · [[TRACK-A-David]] · [[INTERFACE-SystemAudioCapture]]
+Related: [[PROJECT-BRIEF]] · [[TRACK-A-David]] · [[INTERFACE-SystemAudioCapture]]
 
-## A séma (v1)
+## The schema (v1)
 
 ```typescript
 type CaptureResult = {
@@ -27,18 +27,18 @@ type CaptureResult = {
 
   media: {
     audio_path: string;
-    video_url?: string | null;      // R2/Cloudflare URL, vagy null
+    video_url?: string | null;      // R2/Cloudflare URL, or null
   };
 
   speakers: Array<{ id: string; label: string; is_me?: boolean }>;
 
   segments: Array<{
-    start: number; end: number;     // mp
+    start: number; end: number;     // seconds
     speaker: string;                // speakers[].id
     text: string;
   }>;
 
-  // Az LLM-pass UTÁN töltődik (előtte null/üres):
+  // Filled AFTER the LLM pass (null/empty before it):
   summary?: string | null;
   action_items?: string[];
   title?: string | null;
@@ -48,31 +48,31 @@ type CaptureResult = {
 };
 ```
 
-## Mező-felelősség
-| Mező | Motor tölti | Export olvassa |
+## Field ownership
+| Field | Engine fills | Export reads |
 |---|---|---|
 | id, type, status, created_at, duration, language | ✅ | ✅ |
-| media.audio_path / video_url | ✅ | linkeli / web-link |
-| speakers[] / segments[] | ✅ (STT+diarizáció) | speaker-label markdown |
-| summary, action_items, title, tags | ✅ (LLM-pass) | frontmatter + törzs |
+| media.audio_path / video_url | ✅ | links it / web link |
+| speakers[] / segments[] | ✅ (STT+diarization) | speaker-label markdown |
+| summary, action_items, title, tags | ✅ (LLM pass) | frontmatter + body |
 
-## Élezetek
-- **Nincs diarizáció** (diktálás): egy speaker `S1`, `is_me:true`.
-- **LLM-pass előtt**: `summary/...` null → az export ezt kezelje (ne hibázzon).
-- **Streaming**: több `partial`, végén egy `final`; a `final` az igazság.
+## Edge cases
+- **No diarization** (dictation): a single speaker `S1`, `is_me:true`.
+- **Before the LLM pass**: `summary/...` is null → the export must handle this (not error out).
+- **Streaming**: multiple `partial`s, one `final` at the end; the `final` is the source of truth.
 
-## Nyitott döntések (M0 előtt)
-> [!question] D1 — `segments[]` granularitás
-> Szegmens-szint (mondat) vs szó-szint (`words[]`). **Ajánlás:** v0.1 szegmens-szint; a szó-szint additív mező később.
-> - [ ] Döntés: __________
+## Open decisions (before M0)
+> [!question] D1 — `segments[]` granularity
+> Segment level (sentence) vs word level (`words[]`). **Recommendation:** v0.1 segment level; word level as an additive field later.
+> - [ ] Decision: __________
 
 > [!question] D2 — Streaming vs batch
-> Live átirat (Wispr-élmény) most, vagy a végén egyben? **Ajánlás:** v0.1 **batch** (egyszerűbb motor); live diktálás v0.2. A `status` marad a sémában.
-> - [ ] Döntés: __________
+> Live transcript (Wispr-style experience) now, or all at once at the end? **Recommendation:** v0.1 **batch** (simpler engine); live dictation in v0.2. `status` stays in the schema.
+> - [ ] Decision: __________
 
 ## Mock
-`mocks/sample-meeting.json` — a séma kitöltött példánya. Kézzel karbantartott fixture; az export-tesztek (`export.rs`) ellene futnak, így a séma-eltérés fordításkor kibukik.
+`mocks/sample-meeting.json` — a filled-in instance of the schema. Hand-maintained fixture; the export tests (`export.rs`) run against it, so any schema drift surfaces at compile time.
 
-## Jóváhagyás
-- [ ] D1 + D2 eldöntve
-- [ ] v1.0.0 lock → innen csak additív változás
+## Sign-off
+- [ ] D1 + D2 decided
+- [ ] v1.0.0 lock → only additive changes from here on

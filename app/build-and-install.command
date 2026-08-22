@@ -1,21 +1,23 @@
 #!/bin/bash
-# Lavox Hub — build + telepítés (TELJES BUNDLE flow).
+# Lavox Hub — build + install (FULL BUNDLE flow).
 #
-# ⚠️ KRITIKUS SZABÁLYOK (2026-07-03 + 2026-07-14 tanulságok):
-#   1. SOHA ne cseréld csak a binárist egy meglévő .app-ban — a bundle
-#      inkonzisztenssé válik és a WebView semmit nem renderel többé.
-#      MINDIG: teljes `tauri build --bundles app` + TELJES .app másolás (cp -R)
-#      + xattr -cr + codesign a STABIL certtel (így a TCC-engedélyek —
-#      Kamera / Képernyőfelvétel / Bemeneti figyelés — megmaradnak).
-#      Ad-hoc aláírt teszt-build ezek NÉLKÜL fut → a bar hover/gombok sem mennek!
-#   2. A cargo target az iCloud-on KÍVÜL (/tmp) — az iCloud-szinkron beragasztja
-#      a fájlműveleteket, és a lemezt sem tölti tartósan (reboot után ürül).
-#   3. A models/*.bin iCloud-evicted (dataless) lehet → a bundle `os error 89`-cel
-#      hal meg. A build ELŐTT materializálni kell (brctl download).
+# ⚠️ CRITICAL RULES (lessons from 2026-07-03 + 2026-07-14):
+#   1. NEVER swap just the binary inside an existing .app — the bundle
+#      becomes inconsistent and the WebView stops rendering anything.
+#      ALWAYS: full `tauri build --bundles app` + FULL .app copy (cp -R)
+#      + xattr -cr + codesign with the STABLE cert (so the TCC permissions —
+#      Camera / Screen Recording / Input Monitoring — are preserved).
+#      An ad-hoc-signed test build runs WITHOUT them → even the bar
+#      hover/buttons stop working!
+#   2. Keep the cargo target OUTSIDE iCloud (/tmp) — iCloud sync stalls
+#      file operations and doesn't persist the disk space either (it is
+#      cleared after reboot).
+#   3. models/*.bin may be iCloud-evicted (dataless) → the bundle dies with
+#      `os error 89`. Materialize them BEFORE the build (brctl download).
 set -e
 cd "$(dirname "$0")" || exit 1
 
-# Alapértelmezett (self-signed "Hangar Dev") cert — a TCC-engedélyek ehhez kötődnek.
+# Default (self-signed "Hangar Dev") cert — the TCC permissions are bound to it.
 # Signing identity for the installed app. TCC permissions (mic, screen) stick
 # to the signature — use a stable self-signed cert if you rebuild often
 # (Keychain Access → Certificate Assistant → Code Signing). Falls back to
@@ -25,80 +27,83 @@ if ! security find-identity -p codesigning 2>/dev/null | grep -q "$CERT"; then
   echo "   (no signing cert found — using ad-hoc signature)"
   CERT="-"
 fi
-# ── Opcionális Developer ID út (Apple Developer Program) ──────────────────────
-# Ha a LAVOX_SIGN_IDENTITY be van állítva (a Developer ID Application cert neve
-# vagy SHA-1 hash-e), az aláírás hardened runtime + entitlements módban történik.
-# Ha emellett a LAVOX_NOTARY_KEY_ID + LAVOX_NOTARY_KEY_ISSUER +
-# LAVOX_NOTARY_KEY_PATH (App Store Connect API .p8 kulcs) is megvan,
-# notarizáció + staple is fut. Ha a LAVOX_SIGN_IDENTITY NINCS beállítva,
-# minden PONTOSAN a régi self-signed módon megy (TCC-engedélyek megmaradnak).
+# ── Optional Developer ID path (Apple Developer Program) ──────────────────────
+# If LAVOX_SIGN_IDENTITY is set (the name or SHA-1 hash of the Developer ID
+# Application cert), signing happens in hardened runtime + entitlements mode.
+# If, in addition, LAVOX_NOTARY_KEY_ID + LAVOX_NOTARY_KEY_ISSUER +
+# LAVOX_NOTARY_KEY_PATH (App Store Connect API .p8 key) are present,
+# notarization + stapling also runs. If LAVOX_SIGN_IDENTITY is NOT set,
+# everything works EXACTLY as in the old self-signed mode (TCC permissions
+# are preserved).
 TARGET_DIR="/tmp/hangar-cargo-target"
 APP_SRC="$TARGET_DIR/release/bundle/macos/Lavox Hub.app"
 APP_DST="/Applications/Lavox Hub.app"
 
-echo "== 0/6 Előfeltételek =="
-# Lemez-ellenőrzés: a release build + bundle ~6 GB-ot igényel (modell NÉLKÜL —
-# a modell az app-supportban él, NEM a bundle-ben; ld. lentebb).
+echo "== 0/6 Prerequisites =="
+# Disk check: the release build + bundle needs ~6 GB (WITHOUT the model —
+# the model lives in app support, NOT in the bundle; see below).
 FREE_GB=$(df -g / | awk 'NR==2 {print $4}')
 if [ "$FREE_GB" -lt 6 ]; then
-  echo "❌ Kevés a szabad hely: ${FREE_GB} GB (legalább 6 GB kell). Szabadíts fel helyet."
+  echo "❌ Not enough free space: ${FREE_GB} GB (at least 6 GB required). Free up some space."
   exit 1
 fi
-# A whisper-modell NEM kerül a bundle-be (az iCloud folyton kilakoltatta a
-# repo models/ példányát → a bundling örökké újratöltötte). A modell tartós,
-# iCloud-MENTES helye: ~/Library/Application Support/live.plansmart.hangar/models
-# — a find_model ezt keresi először, és a Settings letöltő-gombja is ide tölt.
+# The whisper model is NOT bundled (iCloud kept evicting the repo's models/
+# copy → bundling kept re-downloading it forever). The model's permanent,
+# iCloud-FREE location: ~/Library/Application Support/live.plansmart.hangar/models
+# — find_model looks there first, and the Settings download button also
+# downloads to that location.
 MODEL_DIR="$HOME/Library/Application Support/live.plansmart.hangar/models"
 if ! ls "$MODEL_DIR"/*.bin >/dev/null 2>&1; then
-  echo "⚠️  Nincs modell a(z) $MODEL_DIR mappában — az app első indításkor a"
-  echo "    Beállítások → Modell → Letöltés gombbal tölti le (1,6 GB)."
+  echo "⚠️  No model in $MODEL_DIR — on first launch the app downloads it"
+  echo "    via Settings → Model → Download (1.6 GB)."
 fi
-echo "   ✓ lemez rendben"
+echo "   ✓ disk ok"
 
-# Google naptár-integráció: a desktop OAuth kliens FORDÍTÁSKOR ég be
-# (gauth.rs option_env!). Ha nincs meg, a build lefut, csak a Beállítások azt
-# írja majd, hogy a naptár nem elérhető — ezért itt hangosan jelezzük.
+# Google Calendar integration: the desktop OAuth client is baked in AT COMPILE
+# TIME (gauth.rs option_env!). Without it the build succeeds, but Settings
+# will report the calendar as unavailable — hence the loud warning here.
 #
-# Ajánlott indítás (a titok nem kerül a shell-előzménybe). FIGYELEM a két
-# paraméterre: a Lavox-titkok a `/lavox` PATH-on élnek (nem a projekt
-# gyökerében), és `dev` környezetben (az Infisical UI-ban "Development"):
+# Recommended launch (keeps the secret out of shell history). MIND the two
+# parameters: the Lavox secrets live under the `/lavox` PATH (not the project
+# root), in the `dev` environment ("Development" in the Infisical UI):
 #     infisical run --env=dev --path=/lavox -- ./build-and-install.command
-# vagy kézzel: export LAVOX_DESKTOP_CLIENT_ID=... LAVOX_DESKTOP_CLIENT_SECRET=...
+# or manually: export LAVOX_DESKTOP_CLIENT_ID=... LAVOX_DESKTOP_CLIENT_SECRET=...
 INFISICAL_HINT="infisical run --env=dev --path=/lavox -- ./build-and-install.command"
 if [ -n "$LAVOX_DESKTOP_CLIENT_ID" ] && [ -n "$LAVOX_DESKTOP_CLIENT_SECRET" ]; then
-  echo "   ✓ Google desktop-kliens megvan (id vége: ...${LAVOX_DESKTOP_CLIENT_ID: -6}) — a naptár be lesz kötve"
+  echo "   ✓ Google desktop client present (id ends in: ...${LAVOX_DESKTOP_CLIENT_ID: -6}) — calendar will be wired in"
 else
-  echo "   ⚠️  Nincs LAVOX_DESKTOP_CLIENT_ID/SECRET a környezetben."
-  echo "      A build folytatódik, de a NAPTÁR-INTEGRÁCIÓ KIMARAD ebből a buildből."
-  echo "      Naptárral:  $INFISICAL_HINT"
+  echo "   ⚠️  LAVOX_DESKTOP_CLIENT_ID/SECRET not in the environment."
+  echo "      The build continues, but CALENDAR INTEGRATION IS LEFT OUT of this build."
+  echo "      With calendar:  $INFISICAL_HINT"
 fi
 
 echo "== 1/5 Frontend build (vite) =="
 node ./node_modules/vite/bin/vite.js build
 
-echo "== 2/5 Tauri bundle build (lokális target: $TARGET_DIR) =="
-# beforeBuildCommand üres a tauri.conf-ban — a vite build fent már lefutott
-# (a beforeBuildCommand pipe-olt shellben hamis exit-hibát dob — tauri-cli quirk).
+echo "== 2/5 Tauri bundle build (local target: $TARGET_DIR) =="
+# beforeBuildCommand is empty in tauri.conf — the vite build already ran above
+# (beforeBuildCommand throws a spurious exit error in a piped shell — tauri-cli quirk).
 CARGO_TARGET_DIR="$TARGET_DIR" MACOSX_DEPLOYMENT_TARGET=13.0 \
   pnpm tauri build --bundles app
 
-echo "== 3/5 Telepítés (TELJES bundle csere) =="
+echo "== 3/5 Install (FULL bundle replacement) =="
 osascript -e 'quit app "Lavox Hub"' 2>/dev/null || true
 osascript -e 'quit app "hangar"' 2>/dev/null || true
-# A régi nevű app eltakarítása (az átnevezés után ne legyen két példány).
+# Clean up the app under its old name (no duplicate copies after the rename).
 rm -rf "/Applications/hangar.app"
 sleep 1
 rm -rf "$APP_DST"
 cp -R "$APP_SRC" "$APP_DST"
 
 if [ -n "${LAVOX_SIGN_IDENTITY:-}" ]; then
-  echo "== 4/5 Aláírás Developer ID-vel (hardened runtime + entitlements) =="
+  echo "== 4/5 Signing with Developer ID (hardened runtime + entitlements) =="
   xattr -cr "$APP_DST"
-  # Belülről kifelé írunk alá: ELŐBB a beágyazott Mach-O helper (syscap),
-  # UTÁNA a teljes .app. --deep SZÁNDÉKOSAN NINCS: az Apple deprecálta, és
-  # felülírná a helper külön aláírását — belülről kifelé haladva felesleges.
-  # (Ha a notarizáció valaha aláíratlan beágyazott dylib-re panaszkodna,
-  # azt is itt, az .app aláírása ELŐTT kell külön aláírni.)
+  # Sign inside-out: FIRST the embedded Mach-O helper (syscap),
+  # THEN the full .app. --deep is INTENTIONALLY absent: Apple deprecated it,
+  # and it would overwrite the helper's separate signature — signing
+  # inside-out makes it unnecessary anyway.
+  # (If notarization ever complains about an unsigned embedded dylib,
+  # sign it separately here too, BEFORE signing the .app.)
   codesign --force --options runtime --timestamp \
     --sign "$LAVOX_SIGN_IDENTITY" \
     "$APP_DST/Contents/Resources/helpers/syscap"
@@ -108,7 +113,7 @@ if [ -n "${LAVOX_SIGN_IDENTITY:-}" ]; then
     "$APP_DST"
 
   if [ -n "${LAVOX_NOTARY_KEY_ID:-}" ] && [ -n "${LAVOX_NOTARY_KEY_ISSUER:-}" ] && [ -n "${LAVOX_NOTARY_KEY_PATH:-}" ]; then
-    echo "== 5b/6 Notarizáció (notarytool + stapler) =="
+    echo "== 5b/6 Notarization (notarytool + stapler) =="
     NOTARY_STAGE=$(mktemp -d)
     NOTARY_ZIP="$NOTARY_STAGE/LavoxHub-notary.zip"
     ditto -c -k --keepParent "$APP_DST" "$NOTARY_ZIP"
@@ -117,38 +122,38 @@ if [ -n "${LAVOX_SIGN_IDENTITY:-}" ]; then
       --key-id "$LAVOX_NOTARY_KEY_ID" \
       --issuer "$LAVOX_NOTARY_KEY_ISSUER" \
       --wait
-    # A staple az /Applications-beli appra kerül — így a --release zip
-    # (lentebb) már a VÉGSŐ, staplelt appból készül.
+    # The staple lands on the app in /Applications — so the --release zip
+    # (below) is built from the FINAL, stapled app.
     xcrun stapler staple "$APP_DST"
     rm -rf "$NOTARY_STAGE"
-    echo "   ✓ notarizálva + staplelve"
+    echo "   ✓ notarized + stapled"
   else
-    echo "   ⚠️  Nincs LAVOX_NOTARY_KEY_ID/ISSUER/PATH a környezetben —"
-    echo "      a csomag ALÁÍRVA, de NOTARIZÁLATLANUL készül."
-    echo "      (Más gépen a Gatekeeper első indításkor kifogásolhatja.)"
+    echo "   ⚠️  LAVOX_NOTARY_KEY_ID/ISSUER/PATH not in the environment —"
+    echo "      the package is built SIGNED but NOT NOTARIZED."
+    echo "      (On another machine Gatekeeper may object on first launch.)"
   fi
 else
-  echo "== 4/5 Aláírás a stabil certtel (TCC engedélyek megmaradnak) =="
+  echo "== 4/5 Signing with the stable cert (TCC permissions preserved) =="
   xattr -cr "$APP_DST"
   codesign --force --deep --sign "$CERT" --identifier live.plansmart.hangar "$APP_DST"
 fi
 
-echo "== 5/5 Indítás =="
+echo "== 5/5 Launch =="
 open "$APP_DST"
 echo ""
-echo "== ✅ KÉSZ — teljes bundle telepítve és újraindítva =="
-echo "(bezárhatod ezt az ablakot)"
+echo "== ✅ DONE — full bundle installed and relaunched =="
+echo "(you can close this window)"
 
-# ── Opcionális release: a kész, ALÁÍRT .app felmásolása a VPS-re ──────────────
-# Csak `--release` kapcsolóval fut:
+# ── Optional release: copy the finished, SIGNED .app up to the VPS ────────────
+# Runs only with the `--release` flag:
 #     infisical run --env=dev --path=/lavox -- ./build-and-install.command --release
 #
-# A `ditto` azért kell sima `zip` helyett, mert megőrzi a kódaláírást és az
-# extended attribútumokat. Sima `zip`-pel a másik gépen a Gatekeeper elutasítja
-# az appot. Lásd: docs/superpowers/specs/2026-08-12-hub-installer-design.md
+# `ditto` is used instead of plain `zip` because it preserves the code
+# signature and the extended attributes. With plain `zip`, Gatekeeper rejects
+# the app on the other machine. See: docs/superpowers/specs/2026-08-12-hub-installer-design.md
 if [ "${1:-}" = "--release" ]; then
   echo ""
-  echo "== 7/7 Release feltöltés a VPS-re =="
+  echo "== 7/7 Release upload to the VPS =="
   VERSION=$(date -u +%Y%m%d-%H%M)
   STAGE=$(mktemp -d)
   ZIP="$STAGE/LavoxHub.app.zip"
@@ -165,6 +170,6 @@ if [ "${1:-}" = "--release" ]; then
   scp -q installer/install-lavox-hub.command netcup:/root/lavox-releases/latest/
 
   rm -rf "$STAGE"
-  echo "   ✓ verzió: $VERSION  ($(echo "scale=1; $SIZE/1048576" | bc) MB)"
-  echo "   ✓ letöltés: https://api.lavox.cloud/releases/latest/install-lavox-hub.command"
+  echo "   ✓ version: $VERSION  ($(echo "scale=1; $SIZE/1048576" | bc) MB)"
+  echo "   ✓ download: https://api.lavox.cloud/releases/latest/install-lavox-hub.command"
 fi

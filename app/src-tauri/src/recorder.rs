@@ -96,15 +96,15 @@ pub struct StreamingRecorder {
     buffer: Arc<Mutex<Vec<f32>>>,
     sample_rate: u32,
     channels: u16,
-    /// Pillanatnyi mikrofon-szint (RMS) f32::to_bits formában — a valós idejű
-    /// waveformhoz. A felvevő callback frissíti minden audio-chunknál.
+    /// Current microphone level (RMS) as f32::to_bits — for the real-time
+    /// waveform. The recording callback updates it on every audio chunk.
     level: Arc<AtomicU32>,
     thread: Option<std::thread::JoinHandle<()>>,
 }
 
 impl StreamingRecorder {
-    /// Felvétel indítása. Ha `mic_name` = Some(név), azt a bemeneti eszközt
-    /// használja (a bar mic-választója adja); egyébként az alapértelmezettet.
+    /// Starts recording. If `mic_name` = Some(name), that input device is used
+    /// (supplied by the bar's mic picker); otherwise the default one.
     pub fn start(mic_name: Option<String>) -> Result<Self, String> {
         let host = cpal::default_host();
         let device = match mic_name.as_deref() {
@@ -113,10 +113,10 @@ impl StreamingRecorder {
                 .ok()
                 .and_then(|mut ds| ds.find(|d| d.name().map(|n| n == name).unwrap_or(false)))
                 .or_else(|| host.default_input_device())
-                .ok_or_else(|| "Nincs mikrofon".to_string())?,
+                .ok_or_else(|| "No microphone".to_string())?,
             _ => host
                 .default_input_device()
-                .ok_or_else(|| "Nincs mikrofon".to_string())?,
+                .ok_or_else(|| "No microphone".to_string())?,
         };
         let supported = device.default_input_config().map_err(|e| e.to_string())?;
 
@@ -139,7 +139,7 @@ impl StreamingRecorder {
                         if let Ok(mut b) = buf_cb.lock() {
                             b.extend_from_slice(data);
                         }
-                        // Pillanatnyi RMS szint a valós idejű waveformhoz.
+                        // Current RMS level for the real-time waveform.
                         if !data.is_empty() {
                             let sum: f32 = data.iter().map(|s| s * s).sum();
                             let rms = (sum / data.len() as f32).sqrt();
@@ -168,7 +168,7 @@ impl StreamingRecorder {
         })
     }
 
-    /// Megosztott szint-mérő handle a valós idejű waveformhoz (RMS, 0.0–~1.0).
+    /// Shared level-meter handle for the real-time waveform (RMS, 0.0–~1.0).
     pub fn level_handle(&self) -> Arc<AtomicU32> {
         self.level.clone()
     }

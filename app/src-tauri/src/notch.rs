@@ -1,22 +1,22 @@
-//! Notch-detektálás (MacBook kijelző-bevágás) — a Dynamic Island-stílusú
-//! „notch két oldalán" (compact) layouthoz. Ha nincs notch → fallback (lebegő pill).
+//! Notch detection (MacBook display cutout) — for the Dynamic Island-style
+//! "either side of the notch" (compact) layout. No notch → fallback (floating pill).
 //!
-//! Forrás: `NSScreen.safeAreaInsets.top` (notch magasság) +
-//! `auxiliaryTopLeftArea` / `auxiliaryTopRightArea` (a menüsor-sávok a notch két
-//! oldalán) → a köztük lévő rés a notch vízszintes tartománya.
+//! Source: `NSScreen.safeAreaInsets.top` (notch height) +
+//! `auxiliaryTopLeftArea` / `auxiliaryTopRightArea` (the menu-bar strips on
+//! either side of the notch) → the gap between them is the notch's horizontal range.
 
 use serde::Serialize;
 
 #[derive(Serialize, Clone, Default, Debug)]
 pub struct NotchInfo {
     pub has_notch: bool,
-    /// Notch magasság (logikai pont).
+    /// Notch height (logical points).
     pub notch_height: f64,
-    /// A notch bal éle a képernyőn (logikai pont, a primary képernyő origójához).
+    /// Left edge of the notch on screen (logical points, relative to the primary screen's origin).
     pub notch_left: f64,
-    /// A notch jobb éle.
+    /// Right edge of the notch.
     pub notch_right: f64,
-    /// A primary képernyő szélessége (logikai pont).
+    /// Width of the primary screen (logical points).
     pub screen_width: f64,
     pub scale: f64,
 }
@@ -30,18 +30,18 @@ pub fn detect() -> NotchInfo {
         return NotchInfo::default();
     };
     let screens = NSScreen::screens(mtm);
-    // A primary (menüsoros) képernyő = screens[0]. A pill is ide kerül.
+    // The primary screen (with the menu bar) = screens[0]. The pill goes there too.
     let Some(screen) = screens.firstObject() else {
         return NotchInfo::default();
     };
     let insets = screen.safeAreaInsets();
     if insets.top <= 0.0 {
-        return NotchInfo::default(); // nincs notch → fallback
+        return NotchInfo::default(); // no notch → fallback
     }
     let frame = screen.frame();
-    let left = screen.auxiliaryTopLeftArea(); // menüsor a notch BAL oldalán
-    let right = screen.auxiliaryTopRightArea(); // menüsor a notch JOBB oldalán
-    // A notch x-tartománya: a bal sáv jobb éle .. a jobb sáv bal éle.
+    let left = screen.auxiliaryTopLeftArea(); // menu bar LEFT of the notch
+    let right = screen.auxiliaryTopRightArea(); // menu bar RIGHT of the notch
+    // The notch's x range: right edge of the left strip .. left edge of the right strip.
     let notch_left = left.origin.x + left.size.width;
     let notch_right = right.origin.x;
     NotchInfo {

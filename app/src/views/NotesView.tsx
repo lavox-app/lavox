@@ -1,6 +1,7 @@
-// Jegyzetek nézet — a MŰKÖDŐ Lavox Notes felülete a fő ablakban.
-// A jegyzeteket a backend tárolja (get_notes); szerkeszteni a lebegő
-// jegyzetfüzet-ablakban lehet (show_notebook) — ez a nézet lista + belépő.
+// Notes view — the WORKING Lavox Notes surface in the main window.
+// Notes are stored by the backend (get_notes); editing happens in the floating
+// notebook window (show_notebook) — this view is a list + entry point.
+// NOTE: t() keys are Hungarian source strings (gettext-style, see lib/i18n.ts).
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -16,7 +17,7 @@ interface Note {
   pinned: boolean;
 }
 
-/** Az első nem-üres sor = cím; a többi = előnézet. */
+/** The first non-empty line = title; the rest = preview. */
 function splitNote(text: string): { title: string; preview: string } {
   const lines = text.split("\n").map((l) => l.trim());
   const title = lines.find((l) => l.length > 0) ?? "";
@@ -42,7 +43,7 @@ export function NotesView() {
   useEffect(() => {
     const load = () => invoke<Note[]>("get_notes").then(setNotes).catch(() => {});
     load();
-    // A jegyzetfüzet-ablak minden mentésnél jelez — élőben frissülünk.
+    // The notebook window signals on every save — we refresh live.
     const un = listen("notes-changed", load);
     return () => {
       un.then((f) => f()).catch(() => {});

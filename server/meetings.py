@@ -1,16 +1,16 @@
 """
-Meeting-tároló — Postgres (metaadat+átirat) + Cloudflare R2 (média blobok).
+Meeting store — Postgres (metadata+transcript) + Cloudflare R2 (media blobs).
 
-A kliens (lavox.app webapp vagy hangar-dashboard) a metaadatot JSON-ként küldi,
-a nagy blobokhoz presigned PUT URL-eket kap, és közvetlenül R2-be tölt fel —
-a VPS-en nem folyik át a média.
+The client (lavox.app webapp or hangar-dashboard) sends the metadata as JSON,
+receives presigned PUT URLs for the large blobs, and uploads directly to R2 —
+the media does not flow through the VPS.
 
-Env (mind kötelező a modul aktiválásához, különben a végpontok 503-at adnak):
+Env (all required to activate the module, otherwise the endpoints return 503):
   LAVOX_PG_DSN               postgresql://lavox:...@lead-db:5432/lavox
   LAVOX_R2_ACCOUNT_ID        Cloudflare account id
   LAVOX_R2_ACCESS_KEY_ID     R2 API token access key
   LAVOX_R2_SECRET_ACCESS_KEY R2 API token secret
-  LAVOX_R2_BUCKET            pl. lavox-media
+  LAVOX_R2_BUCKET            e.g. lavox-media
 """
 
 import os
@@ -28,8 +28,8 @@ R2_ACCESS_KEY_ID = os.environ.get("LAVOX_R2_ACCESS_KEY_ID", "")
 R2_SECRET_ACCESS_KEY = os.environ.get("LAVOX_R2_SECRET_ACCESS_KEY", "")
 R2_BUCKET = os.environ.get("LAVOX_R2_BUCKET", "")
 
-UPLOAD_URL_TTL = 3600       # presigned PUT érvényesség (s)
-PLAYBACK_URL_TTL = 3600 * 6  # presigned GET érvényesség (s)
+UPLOAD_URL_TTL = 3600       # presigned PUT validity (s)
+PLAYBACK_URL_TTL = 3600 * 6  # presigned GET validity (s)
 
 MEDIA_KINDS = ("audio", "mic", "mixed", "video")
 _EXT_RE = re.compile(r"^[a-z0-9]{1,8}$")
@@ -78,16 +78,17 @@ CREATE TABLE IF NOT EXISTS meetings (
 CREATE INDEX IF NOT EXISTS meetings_ws_created ON meetings (workspace, created_at DESC);
 """
 
-# Migráció a régi, GLOBÁLIS (id) elsődleges kulcsról a (workspace, id) párosra.
+# Migration from the old GLOBAL (id) primary key to the (workspace, id) pair.
 #
-# Miért: a meeting-id-t a kliens küldi, és jósolható formában generálja
-# (`rec-<epoch_ms>`). Globális kulccsal az id-tér a tenantok között MEGOSZTOTT,
-# így egy támadó előre lefoglalhatna id-ket, és az áldozat feltöltése tartósan
-# ütközne (a felvétel sosem jutna fel), a 409/200 különbség pedig elárulná,
-# mikor fejezett be felvételt egy idegen workspace. Kompozit kulccsal két tenant
-# azonos id-je strukturálisan nem ütközhet.
+# Why: the meeting id is sent by the client and generated in a predictable
+# form (`rec-<epoch_ms>`). With a global key, the id space is SHARED between
+# tenants, so an attacker could reserve ids in advance and the victim's
+# upload would permanently conflict (the recording would never make it up),
+# while the 409/200 difference would reveal when a foreign workspace finished
+# a recording. With a composite key, two tenants' identical ids structurally
+# cannot collide.
 #
-# Idempotens: csak akkor fut, ha a jelenlegi elsődleges kulcs egyoszlopos.
+# Idempotent: only runs when the current primary key is single-column.
 MIGRATE_PK_SQL = """
 DO $$
 DECLARE
@@ -104,7 +105,7 @@ BEGIN
   IF pk_name IS NOT NULL AND pk_cols = 1 THEN
     EXECUTE format('ALTER TABLE meetings DROP CONSTRAINT %I', pk_name);
     ALTER TABLE meetings ADD PRIMARY KEY (workspace, id);
-    RAISE NOTICE 'meetings PK migrálva: (id) -> (workspace, id)';
+    RAISE NOTICE 'meetings PK migrated: (id) -> (workspace, id)';
   END IF;
 END $$;
 """
@@ -125,7 +126,7 @@ CORS_ORIGINS = [
 
 
 def ensure_bucket_cors() -> None:
-    """A böngészőből közvetlen R2-be töltéshez (presigned PUT) bucket-CORS kell."""
+    """Direct browser-to-R2 upload (presigned PUT) requires bucket CORS."""
     _r2().put_bucket_cors(
         Bucket=R2_BUCKET,
         CORSConfiguration={
@@ -146,10 +147,10 @@ def _media_key(workspace: str, meeting_id: str, kind: str, ext: str) -> str:
 
 
 def create_meeting(workspace: str, payload: dict[str, Any]) -> dict[str, Any]:
-    """Metaadat mentése + presigned PUT URL-ek a kért média-fájlokhoz."""
+    """Save metadata + presigned PUT URLs for the requested media files."""
     meeting_id = str(payload.get("id") or f"mtg_{uuid.uuid4().hex[:12]}")
     if not _ID_RE.match(meeting_id):
-        raise ValueError("Érvénytelen meeting id (A-Za-z0-9_-, max 64).")
+        raise ValueError("Invalid meeting id (A-Za-z0-9_-, max 64).")
 
     media_req: dict[str, Any] = payload.get("media") or {}
     media_meta: dict[str, Any] = {}
@@ -157,10 +158,10 @@ def create_meeting(workspace: str, payload: dict[str, Any]) -> dict[str, Any]:
     r2 = _r2() if media_req else None
     for kind, spec in media_req.items():
         if kind not in MEDIA_KINDS:
-            raise ValueError(f"Ismeretlen média-típus: {kind} (támogatott: {', '.join(MEDIA_KINDS)})")
+            raise ValueError(f"Unknown media kind: {kind} (supported: {', '.join(MEDIA_KINDS)})")
         ext = str((spec or {}).get("ext", "")).lower()
         if not _EXT_RE.match(ext):
-            raise ValueError(f"Érvénytelen kiterjesztés a(z) {kind} sávhoz: {ext!r}")
+            raise ValueError(f"Invalid extension for the {kind} track: {ext!r}")
         key = _media_key(workspace, meeting_id, kind, ext)
         media_meta[kind] = {"key": key, "ext": ext, "uploaded": False}
         upload_urls[kind] = r2.generate_presigned_url(
@@ -171,9 +172,9 @@ def create_meeting(workspace: str, payload: dict[str, Any]) -> dict[str, Any]:
 
     status = "pending" if media_meta else "complete"
     with _conn() as conn:
-        # A kulcs (workspace, id), ezért az ON CONFLICT csak a SAJÁT workspace
-        # azonos id-jű sorára tud illeszkedni: idegen tenant sorát sem felülírni,
-        # sem "lefoglalt id"-vel blokkolni nem lehet.
+        # The key is (workspace, id), so ON CONFLICT can only match the row
+        # with the same id in the OWN workspace: a foreign tenant's row can
+        # neither be overwritten nor blocked with a "reserved id".
         conn.execute(
             """
             INSERT INTO meetings
@@ -192,6 +193,9 @@ def create_meeting(workspace: str, payload: dict[str, Any]) -> dict[str, Any]:
             (
                 meeting_id,
                 workspace,
+                # "Névtelen felvétel" = "Untitled recording". Kept in Hungarian:
+                # it is a user-visible default title stored in the DB for the
+                # Hungarian-language product UI.
                 str(payload.get("title") or "Névtelen felvétel"),
                 str(payload.get("type") or "meeting"),
                 payload.get("created_at"),
@@ -217,13 +221,13 @@ def save_meeting_direct(
     meta: dict[str, Any],
     media_files: dict[str, tuple[str, str]],
 ) -> dict[str, Any]:
-    """Szerver-oldali KÖZVETLEN mentés: a szerveren lévő fájlokat feltölti R2-be
-    (nem presigned URL-en át) + metaadat Postgresbe. A /api/transcribe hívja
-    auto_save=true esetén → a felvétel a transzkripció után MAGÁTÓL felkerül a
-    webappba. media_files: {kind: (helyi_útvonal, ext)}.
+    """Server-side DIRECT save: uploads the files sitting on the server to R2
+    (not via presigned URLs) + metadata to Postgres. Called by /api/transcribe
+    when auto_save=true → the recording lands in the webapp BY ITSELF after
+    transcription. media_files: {kind: (local_path, ext)}.
     """
     if not _ID_RE.match(meeting_id):
-        raise ValueError("Érvénytelen meeting id.")
+        raise ValueError("Invalid meeting id.")
     r2 = _r2() if media_files else None
     media_meta: dict[str, Any] = {}
     for kind, (path, ext) in media_files.items():
@@ -249,6 +253,7 @@ def save_meeting_direct(
             """,
             (
                 meeting_id, workspace,
+                # "Névtelen felvétel" = "Untitled recording" — see create_meeting.
                 str(meta.get("title") or "Névtelen felvétel"),
                 str(meta.get("type") or "meeting"),
                 meta.get("created_at"),
@@ -267,7 +272,7 @@ def save_meeting_direct(
 
 
 def complete_meeting(workspace: str, meeting_id: str) -> dict[str, Any]:
-    """Blob-feltöltések ellenőrzése (head_object) és a meeting véglegesítése."""
+    """Verify blob uploads (head_object) and finalize the meeting."""
     row = _get_row(workspace, meeting_id)
     if row is None:
         raise KeyError(meeting_id)
@@ -323,11 +328,11 @@ def _get_row(workspace: str, meeting_id: str) -> dict[str, Any] | None:
 
 
 def media_urls_for(media: dict[str, Any], ttl: int) -> dict[str, str]:
-    """Lejátszási URL-ek EGYEDI élettartammal.
+    """Playback URLs with a CUSTOM lifetime.
 
-    A megosztott (publikus) nézet rövidebb TTL-t kap, mint a bejelentkezett:
-    egy egyszer kiadott presigned URL a link visszavonása UTÁN is működik a
-    lejáratáig, tehát a TTL a visszavonás tényleges átfutási ideje.
+    The shared (public) view gets a shorter TTL than the logged-in one: a
+    once-issued presigned URL keeps working until its expiry even AFTER the
+    link is revoked, so the TTL is the effective revocation lead time.
     """
     if not media:
         return {}
@@ -395,7 +400,7 @@ def delete_meeting(workspace: str, meeting_id: str) -> bool:
             try:
                 r2.delete_object(Bucket=R2_BUCKET, Key=meta["key"])
             except Exception:
-                pass  # a DB-sor törlése fontosabb; az árva objektum később takarítható
+                pass  # deleting the DB row matters more; the orphan object can be cleaned up later
     with _conn() as conn:
         conn.execute(
             "DELETE FROM meetings WHERE id=%s AND workspace=%s", (meeting_id, workspace)

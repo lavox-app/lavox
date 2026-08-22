@@ -2,9 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import "./CameraBubble.css";
 
-// Kör alakú kamera-előnézet, amit a képernyőfelvétel PiP-ként rögzít.
-// Ha a getUserMedia hibázik (nincs kamera / engedély megtagadva), jelez a
-// Rustnak (hide_camera_bubble) → a felvétel csak képernyővel folytatódik.
+// Circular camera preview that the screen recording captures as PiP.
+// If getUserMedia fails (no camera / permission denied), it signals Rust
+// (hide_camera_bubble) → the recording continues with screen only.
 export default function CameraBubble() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [err, setErr] = useState("");
@@ -27,7 +27,7 @@ export default function CameraBubble() {
       })
       .catch((e) => {
         setErr(String(e));
-        // Nincs kamera/engedély → a Rust zárja be a buborékot (screen-only felvétel).
+        // No camera/permission → Rust closes the bubble (screen-only recording).
         invoke("hide_camera_bubble").catch(() => {});
       });
     return () => {
@@ -40,7 +40,7 @@ export default function CameraBubble() {
     <div className="cam-wrap">
       <div className="cam-circle">
         {err ? (
-          <div className="cam-err">Nincs kamera</div>
+          <div className="cam-err">No camera</div>
         ) : (
           <video ref={videoRef} autoPlay playsInline muted />
         )}

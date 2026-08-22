@@ -1,6 +1,6 @@
-// Fő ablak — dashboard-szerű layout: bal sidebar (4 mód + Beállítások) + jobb
-// main-content az aktív mód nézetével. A megosztott állapotot (modell, mikrofonok)
-// itt töltjük be egyszer, és átadjuk a nézeteknek.
+// Main window — dashboard-like layout: left sidebar (4 modes + Settings) +
+// right main-content with the active mode's view. Shared state (model,
+// microphones) is loaded here once and passed down to the views.
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import "./App.css";
@@ -19,7 +19,7 @@ function App() {
   const [mics, setMics] = useState<string[]>([]);
   const [modelPath, setModelPath] = useState<string | null>(null);
 
-  // Megosztott állapot betöltése egyszer (a befagyasztott parancsokkal).
+  // Load shared state once (via the frozen commands).
   useEffect(() => {
     invoke<string>("find_model")
       .then(setModelPath)

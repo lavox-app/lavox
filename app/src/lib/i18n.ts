@@ -1,8 +1,10 @@
-// UI-nyelv (felület nyelve) — gettext-minta: a kódban a MAGYAR string a forrás,
-// a t() az EN szótárból fordít; ismeretlen kulcs → a magyar forrás jelenik meg.
-// Default: ENGLISH (EN-first termék). Nyelvváltás = reload.
+// UI language — gettext pattern: the HUNGARIAN string in the code is the
+// source (and the dictionary key), t() translates from the EN dictionary;
+// unknown key → the Hungarian source is shown. Because the Hungarian strings
+// act as lookup keys, they must stay byte-identical wherever t() is called.
+// Default: ENGLISH (EN-first product). Switching language = reload.
 //
-// Használat:
+// Usage:
 //   import { t } from "./lib/i18n";
 //   <button>{t("Nyelv")}</button>
 //   t("Kész — {n} szegmens").replace("{n}", String(n))

@@ -1,31 +1,33 @@
-"""Lavox Memory — fúziós memória-mag (M0).
+"""Lavox Memory — fusion memory core (M0).
 
-A beszédből (meeting, diktálás) épülő személyes memória, amit bármelyik
-AI-eszköz MCP-n keresztül olvas. Nincs saját keresőfelület: a Lavox itt
-alapréteg, az interfész a Claude Code / ChatGPT / bármi.
+A personal memory built from speech (meetings, dictation), read by any AI
+tool over MCP. There is no dedicated search UI: Lavox is a base layer here,
+the interface is Claude Code / ChatGPT / anything.
 
-HÁROM RÉTEG:
-  1. VERBATIM (kanonikus): a nyers átirat kontextus-fejléces ~400 tokenes
-     chunkokban. Soha nem törlődik. A kontrollált mérések szerint (Letta,
-     "verbatim chunks beat lossy extraction") a nyers réteg önállóan is erős
-     — ezért ez a tár igazsága, nem a kinyert réteg.
-  2. ÁLLÍTÁS (kinyert index, M1-től töltődik): típusozott állítások
-     (decision/fact/preference/commitment), bitemporális oszlopokkal.
-     A bitemporalitás itt SÉMA, nem framework: occurred_at + invalidated_at
-     + superseded_by megadja a "mit hittünk júliusban" lekérdezhetőséget
-     LLM-per-write költség és külső gráf-DB nélkül.
-  3. PROFIL-MAG (M1): ~500 tokenes összefoglaló session-start injektáláshoz.
+THREE LAYERS:
+  1. VERBATIM (canonical): the raw transcript in ~400-token chunks with
+     context headers. Never deleted. Controlled measurements (Letta,
+     "verbatim chunks beat lossy extraction") show the raw layer is strong
+     on its own — so THIS is the store's source of truth, not the extracted
+     layer.
+  2. ASSERTION (extracted index, populated from M1): typed assertions
+     (decision/fact/preference/commitment) with bitemporal columns.
+     Bitemporality here is a SCHEMA, not a framework: occurred_at +
+     invalidated_at + superseded_by provide "what did we believe in July"
+     queryability without LLM-per-write cost or an external graph DB.
+  3. PROFILE CORE (M1): ~500-token summary for session-start injection.
 
-FÚZIÓ: 4 párhuzamos lista (chunk-vektor, chunk-FTS, állítás-vektor,
-állítás-FTS) → RRF (k=60) → kereszt-csatolás (a chunk-találat behúzza a rá
-mutató ÉLŐ állításokat, az állítás-találat a forrás-chunkját) → additív,
-korlátos frissesség-bónusz KIZÁRÓLAG időérzékeny kérdésnél. A szorzó-alapú
-age-decay bizonyítottan recall-gyilkos (saját mérés: 19/20 → 4/20).
+FUSION: 4 parallel lists (chunk-vector, chunk-FTS, assertion-vector,
+assertion-FTS) → RRF (k=60) → cross-linking (a chunk hit pulls in the LIVE
+assertions pointing at it, an assertion hit pulls in its source chunk) →
+additive, bounded recency bonus ONLY for time-sensitive questions.
+Multiplicative age-decay is a proven recall killer (own measurement:
+19/20 → 4/20).
 
-TÁROLÁS: SQLite (WAL) + sqlite-vec + FTS5 — egy fájl, nulla üzemeltetés a
-felhasználó gépén. A felhős tier (M2) ugyanezt a sémát tükrözi Postgresben.
-A vektorok model_id-vel címkézettek: két modell vektorai együtt élhetnek
-migráció alatt, és a self-hoster azzal embeddel, amivel akar.
+STORAGE: SQLite (WAL) + sqlite-vec + FTS5 — one file, zero ops on the
+user's machine. The cloud tier (M2) mirrors the same schema in Postgres.
+Vectors are tagged with a model_id: two models' vectors can coexist during
+a migration, and self-hosters embed with whatever they want.
 """
 
 from __future__ import annotations
@@ -42,29 +44,32 @@ from pathlib import Path
 from typing import Any, Iterable
 
 # ---------------------------------------------------------------------------
-# Konfiguráció
+# Configuration
 # ---------------------------------------------------------------------------
 
 MEMORY_DIR = Path(os.environ.get("LAVOX_MEMORY_DIR", str(Path.home() / "Lavox" / "memory")))
 DB_PATH = MEMORY_DIR / "lavox-memory.db"
 
-# Az első támogatott modellt választjuk. A default kicsi (gyors első élmény,
-# HU+EN); a séma modell-független, a csere párhuzamos újra-embeddeléssel megy.
+# The first supported model is chosen. The default is small (fast first
+# experience, HU+EN); the schema is model-agnostic, swapping is done via
+# parallel re-embedding.
 PREFERRED_MODELS = [
     ("intfloat/multilingual-e5-small", 384, "e5"),
     ("sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2", 384, "plain"),
     ("intfloat/multilingual-e5-large", 1024, "e5"),
 ]
 
-# ~400 token ≈ ~1400 karakter (a magyar tokenizálás pazarlóbb, ez konzervatív)
+# ~400 tokens ≈ ~1400 chars (Hungarian tokenization is more wasteful; this is conservative)
 CHUNK_MAX_CHARS = 1400
-CHUNK_MIN_CHARS = 120          # ennél rövidebb szomszédos szegmensek összevonása
+CHUNK_MIN_CHARS = 120          # neighbouring segments shorter than this get merged
 RRF_K = 60
 PER_LIST_LIMIT = 50
-RECENCY_GAMMA = 0.15           # a max RRF-pontszám max 15%-a — additív, korlátos
+RECENCY_GAMMA = 0.15           # at most 15% of the max RRF score — additive, bounded
 RECENCY_HALFLIFE_DAYS = 30.0
 
-# Időérzékeny kérdés-minták (HU+EN). Ha egyik sem talál, a recency-tag 0.
+# Time-sensitive question patterns (HU+EN). If none match, the recency term is 0.
+# NOTE: the Hungarian words in this regex are functional data — they are
+# matched against Hungarian user queries. Do not translate them.
 _TIME_SENSITIVE = re.compile(
     r"\b(ma|mai|tegnap|legut[oó]bb|mostan[aá]ban|m[uú]lt h[eé]t|h[eé]ten|"
     r"friss|jelenleg|aktu[aá]lis|utols[oó]|"
@@ -77,7 +82,7 @@ _embedder_meta: tuple[str, int, str] | None = None
 
 
 # ---------------------------------------------------------------------------
-# Séma
+# Schema
 # ---------------------------------------------------------------------------
 
 SCHEMA_SQL = """
@@ -85,9 +90,9 @@ CREATE TABLE IF NOT EXISTS recordings (
   id          TEXT PRIMARY KEY,
   kind        TEXT NOT NULL,            -- meeting | dictation | note
   title       TEXT,
-  occurred_at TEXT NOT NULL,            -- ISO, esemény-idő
+  occurred_at TEXT NOT NULL,            -- ISO, event time
   duration_sec REAL,
-  participants TEXT,                    -- JSON lista
+  participants TEXT,                    -- JSON list
   meta        TEXT,                     -- JSON
   ingested_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
 );
@@ -99,8 +104,8 @@ CREATE TABLE IF NOT EXISTS chunks (
   speaker      TEXT,
   t_start      REAL,
   t_end        REAL,
-  text         TEXT NOT NULL,           -- nyers szöveg (kanonikus)
-  header       TEXT NOT NULL,           -- kontextus-fejléc (embeddelve + FTS-ben)
+  text         TEXT NOT NULL,           -- raw text (canonical)
+  header       TEXT NOT NULL,           -- context header (embedded + in FTS)
   UNIQUE (recording_id, seq)
 );
 
@@ -108,17 +113,17 @@ CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
   text, header, content=chunks, content_rowid=id
 );
 
--- Állítás-réteg (M1 tölti; a séma és a keresés már most kész rá).
--- A bitemporalitás lényege három oszlop — nem kell hozzá gráf-framework:
---   occurred_at   = mikor hangzott el (esemény-idő)
---   recorded_at   = mikor került a memóriába (rögzítés-idő)
---   invalidated_at + superseded_by = felülírás-lánc, törlés SOHA nincs
+-- Assertion layer (populated by M1; the schema and search are ready now).
+-- The essence of bitemporality is three columns — no graph framework needed:
+--   occurred_at   = when it was said (event time)
+--   recorded_at   = when it entered the memory (record time)
+--   invalidated_at + superseded_by = supersedes chain, NOTHING is ever deleted
 CREATE TABLE IF NOT EXISTS assertions (
   id            INTEGER PRIMARY KEY,
   type          TEXT NOT NULL,          -- decision | fact | preference | commitment | task
-  text          TEXT NOT NULL,          -- önhordó megfogalmazás
-  data          TEXT,                   -- JSON: decision-nél {chosen, alternatives[], reasoning}
-  source        TEXT NOT NULL,          -- extracted | user_stated | agent  (poisoning-védelem)
+  text          TEXT NOT NULL,          -- self-contained wording
+  data          TEXT,                   -- JSON: for decisions {chosen, alternatives[], reasoning}
+  source        TEXT NOT NULL,          -- extracted | user_stated | agent  (poisoning defense)
   source_chunk_id INTEGER REFERENCES chunks(id),
   occurred_at   TEXT NOT NULL,
   recorded_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
@@ -131,9 +136,9 @@ CREATE VIRTUAL TABLE IF NOT EXISTS assertions_fts USING fts5(
   text, content=assertions, content_rowid=id
 );
 
--- Melyik embedding-modell aktív. A vektorok modell-címkézett vec0 táblákban
--- élnek (vec_chunk_<tag>, vec_assertion_<tag>) — modellcsere = új tábla
--- párhuzamos feltöltése, átkapcsolás, régi eldobása. Nincs leállás.
+-- Which embedding model is active. Vectors live in model-tagged vec0 tables
+-- (vec_chunk_<tag>, vec_assertion_<tag>) — a model swap = filling a new table
+-- in parallel, switching over, dropping the old one. No downtime.
 CREATE TABLE IF NOT EXISTS embedding_models (
   model_id  TEXT PRIMARY KEY,
   dim       INTEGER NOT NULL,
@@ -151,7 +156,7 @@ def _model_tag(model_id: str) -> str:
 def connect() -> sqlite3.Connection:
     MEMORY_DIR.mkdir(parents=True, exist_ok=True)
     db = sqlite3.connect(DB_PATH)
-    db.execute("PRAGMA journal_mode=WAL")       # több kliens, nincs korrupció
+    db.execute("PRAGMA journal_mode=WAL")       # multiple clients, no corruption
     db.execute("PRAGMA busy_timeout=5000")
     db.enable_load_extension(True)
     import sqlite_vec
@@ -171,7 +176,7 @@ def _ensure_vec_tables(db: sqlite3.Connection, model_id: str, dim: int) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Embedding (fastembed — ONNX, lokális, modell-cserélhető)
+# Embedding (fastembed — ONNX, local, model-swappable)
 # ---------------------------------------------------------------------------
 
 def _pick_model() -> tuple[str, int, str]:
@@ -181,13 +186,13 @@ def _pick_model() -> tuple[str, int, str]:
         if model_id in supported:
             return model_id, dim, style
     raise RuntimeError(
-        "Egyik preferált embedding-modell sem támogatott ebben a fastembed-verzióban. "
-        f"Támogatott: {sorted(supported)[:10]}…"
+        "None of the preferred embedding models are supported in this fastembed version. "
+        f"Supported: {sorted(supported)[:10]}…"
     )
 
 
 def get_embedder():
-    """Lusta, folyamat-szintű singleton — a modell egyszer töltődik be."""
+    """Lazy, process-level singleton — the model is loaded once."""
     global _embedder, _embedder_meta
     if _embedder is None:
         from fastembed import TextEmbedding
@@ -233,7 +238,7 @@ def embed_query(text: str, style: str) -> bytes:
 
 
 # ---------------------------------------------------------------------------
-# Chunkolás — beszélőváltásnál vágva, kontextus-fejléccel
+# Chunking — split on speaker change, with a context header
 # ---------------------------------------------------------------------------
 
 def _fmt_ts(sec: float | None) -> str:
@@ -244,15 +249,18 @@ def _fmt_ts(sec: float | None) -> str:
 
 
 def build_chunks(recording: dict[str, Any], segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Átirat-szegmensek → kontextus-fejléces chunkok.
+    """Transcript segments → chunks with context headers.
 
-    Szabályok (a mérések szerint a chunkoló-algoritmus másodrendű, a fejléc
-    elsőrendű — ezért az algoritmus egyszerű, a fejléc gazdag):
-      - beszélőváltásnál mindig új chunk,
-      - azonos beszélő szegmensei összevonva CHUNK_MAX_CHARS-ig,
-      - a törpe-szegmensek (< CHUNK_MIN_CHARS) nem kapnak önálló chunkot.
+    Rules (measurements show the chunking algorithm is second-order, the
+    header is first-order — hence a simple algorithm and a rich header):
+      - always a new chunk on speaker change,
+      - segments of the same speaker merged up to CHUNK_MAX_CHARS,
+      - tiny segments (< CHUNK_MIN_CHARS) do not get a chunk of their own.
     """
     date = (recording.get("occurred_at") or "")[:10]
+    # "(cím nélkül)" = "(untitled)". Kept in Hungarian: the header is embedded
+    # and FTS-indexed alongside Hungarian transcripts, and already-ingested
+    # chunks in existing databases contain the Hungarian header labels.
     title = recording.get("title") or "(cím nélkül)"
     kind = recording.get("kind") or "meeting"
     participants = recording.get("participants") or []
@@ -268,8 +276,8 @@ def build_chunks(recording: dict[str, Any], segments: list[dict[str, Any]]) -> l
         same_speaker = cur is not None and cur["speaker"] == speaker
         fits = cur is not None and len(cur["text"]) + len(text) + 1 <= CHUNK_MAX_CHARS
         tiny = cur is not None and len(cur["text"]) < CHUNK_MIN_CHARS
-        # törpe csoportot beszélőváltásnál is tovább görgetjük, hogy ne legyen
-        # kereshetetlen morzsa ("igen", "oké") önálló chunkként
+        # tiny groups keep rolling forward even across a speaker change, so
+        # unsearchable crumbs ("igen", "oké") don't end up as standalone chunks
         if cur is not None and (same_speaker and fits or (tiny and fits)):
             cur["text"] += " " + text
             cur["t_end"] = seg.get("end", cur["t_end"])
@@ -289,10 +297,14 @@ def build_chunks(recording: dict[str, Any], segments: list[dict[str, Any]]) -> l
 
     chunks = []
     for i, g in enumerate(groups):
-        # Kontextus-injekció: a fejléc bekerül az embeddelt szövegbe ÉS az
-        # FTS-be. Az Anthropic mérése szerint ez -35..49% retrieval-hiba —
-        # nálunk a metaadat ingyen van (a felvételből jön), LLM sem kell hozzá.
+        # Context injection: the header goes into the embedded text AND into
+        # FTS. Per Anthropic's measurement this is -35..49% retrieval error —
+        # for us the metadata is free (comes from the recording), no LLM needed.
         head_bits = [date, kind, title]
+        # The "résztvevők:" (participants) and "beszélő:" (speaker) labels are
+        # functional data: they are embedded/FTS-indexed with Hungarian
+        # transcripts and must stay identical to headers already stored in
+        # existing databases.
         if part_str:
             head_bits.append(f"résztvevők: {part_str}")
         if g["speaker"]:
@@ -319,11 +331,11 @@ def ingest_recording(
     segments: list[dict[str, Any]],
     force: bool = False,
 ) -> dict[str, Any]:
-    """Egy felvétel (meeting/diktálás) betöltése a memóriába. Idempotens."""
+    """Ingest one recording (meeting/dictation) into the memory. Idempotent."""
     rid = recording["id"]
     exists = db.execute("SELECT 1 FROM recordings WHERE id=?", (rid,)).fetchone()
     if exists and not force:
-        return {"id": rid, "status": "skipped (már bent van)"}
+        return {"id": rid, "status": "skipped (already ingested)"}
     if exists and force:
         _delete_recording(db, rid)
 
@@ -331,7 +343,7 @@ def ingest_recording(
     tag = _model_tag(model_id)
     chunks = build_chunks(recording, segments)
     if not chunks:
-        return {"id": rid, "status": "üres átirat, kihagyva"}
+        return {"id": rid, "status": "empty transcript, skipped"}
 
     db.execute(
         "INSERT INTO recordings (id, kind, title, occurred_at, duration_sec, participants, meta) "
@@ -370,7 +382,8 @@ def ingest_recording(
 
 
 def _delete_recording(db: sqlite3.Connection, rid: str) -> None:
-    """Force-reingest belső segédje. A verbatim réteg normál úton sosem törlődik."""
+    """Internal helper for force-reingest. The verbatim layer is never deleted
+    through the normal path."""
     rows = db.execute("SELECT id FROM chunks WHERE recording_id=?", (rid,)).fetchall()
     ids = [r[0] for r in rows]
     for model_row in db.execute("SELECT model_id FROM embedding_models").fetchall():
@@ -384,16 +397,16 @@ def _delete_recording(db: sqlite3.Connection, rid: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Keresés — 4 lista → RRF → kereszt-csatolás → feltételes recency
+# Search — 4 lists → RRF → cross-linking → conditional recency
 # ---------------------------------------------------------------------------
 
 def _fts_query(user_query: str) -> str:
-    """Felhasználói szöveg → biztonságos FTS5 query.
+    """User text → safe FTS5 query.
 
-    Minden tokent idézőjelezünk (nincs szintaxis-injektálás), a 4+ karakteres
-    tokenek prefix-csillagot kapnak — ez a magyar toldalékok elleni olcsó
-    védelem ("szerződés" megtalálja a "szerződésről"-t). A tokenek között
-    implicit AND van; ha az AND üres találatot adna, a hívó OR-ra válthat.
+    Every token is quoted (no syntax injection); tokens of 4+ characters get
+    a prefix star — cheap protection against Hungarian suffixes ("szerződés"
+    finds "szerződésről"). Tokens are implicitly AND-ed; if AND would return
+    nothing, the caller can switch to OR.
     """
     tokens = re.findall(r"\w+", user_query, re.UNICODE)
     parts = []
@@ -402,14 +415,15 @@ def _fts_query(user_query: str) -> str:
             parts.append(f'"{t}"*')
         elif t:
             parts.append(f'"{t}"')
-    # OR-mód: a BM25 úgyis a több egyezést rangsorolja előre, az AND viszont
-    # kinullázná a lexikai ágat, amint egyetlen kérdés-szó hiányzik a chunkból
-    # ("mit BESZÉLTÜNK az X projektről" — a 'beszéltünk' nincs az átiratban).
+    # OR mode: BM25 ranks multi-match results first anyway, while AND would
+    # zero out the lexical branch as soon as a single question word is missing
+    # from the chunk ("what did we DISCUSS about project X" — 'discuss' is not
+    # in the transcript).
     return " OR ".join(parts) if parts else '""'
 
 
 def _rrf_merge(lists: dict[str, list[tuple[str, int]]]) -> dict[str, float]:
-    """kulcs: 'chunk:<id>' / 'assertion:<id>' → RRF-pontszám."""
+    """key: 'chunk:<id>' / 'assertion:<id>' → RRF score."""
     scores: dict[str, float] = {}
     for _name, ranked in lists.items():
         for key, rank in ranked:
@@ -449,7 +463,7 @@ def search(
         rows = []
     lists["chunk_fts"] = [(f"chunk:{r[0]}", i + 1) for i, r in enumerate(rows)]
 
-    # Állítás-listák — M0-ban üresek, M1-től élnek; a fúzió kész.
+    # Assertion lists — empty in M0, live from M1; the fusion is ready.
     rows = db.execute(
         f"SELECT rowid FROM vec_assertion_{tag} WHERE embedding MATCH ? "
         f"ORDER BY distance LIMIT ?",
@@ -471,7 +485,7 @@ def search(
     if not scores:
         return []
 
-    # Feltételes, additív, korlátos recency — SOHA nem szorzó.
+    # Conditional, additive, bounded recency — NEVER a multiplier.
     if _TIME_SENSITIVE.search(query):
         max_score = max(scores.values())
         now = time.time()
@@ -484,9 +498,9 @@ def search(
 
     ranked = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
 
-    # Felvételenkénti cap (Cerebras-minta: "dedup + per-fájl cap → változatos
-    # top-N"). Enélkül egyetlen hosszú meeting chunkjai kiszoríthatják a
-    # rövidebb, de relevánsabb felvételeket a végeredményből.
+    # Per-recording cap (Cerebras pattern: "dedup + per-file cap → diverse
+    # top-N"). Without it, the chunks of a single long meeting could crowd
+    # shorter but more relevant recordings out of the final result.
     per_recording_cap = max(2, limit // 3)
     rec_count: dict[str, int] = {}
 
@@ -546,7 +560,7 @@ def _hydrate(db: sqlite3.Connection, key: str, include_superseded: bool) -> dict
         ).fetchone()
         if not row:
             return None
-        # Kereszt-csatolás: a chunkra mutató ÉLŐ állítások (M1-től ad találatot)
+        # Cross-linking: LIVE assertions pointing at the chunk (hits from M1 on)
         assertions = db.execute(
             "SELECT id, type, text FROM assertions WHERE source_chunk_id=? "
             "AND invalidated_at IS NULL LIMIT 5",
@@ -592,8 +606,8 @@ def _hydrate(db: sqlite3.Connection, key: str, include_superseded: bool) -> dict
 
 
 def fetch(db: sqlite3.Connection, item_id: str, context: bool = True) -> dict[str, Any] | None:
-    """Teljes tartalom id alapján — chunknál a szomszédos chunkokkal együtt
-    (kontextus-bővítés a győztesen, nem az egész korpuszon — Cerebras-minta)."""
+    """Full content by id — for chunks, together with the neighbouring chunks
+    (context expansion on the winner, not the whole corpus — Cerebras pattern)."""
     typ, _, raw_id = item_id.partition(":")
     oid = int(raw_id)
     if typ == "chunk":
@@ -642,7 +656,7 @@ def timeline(
     kind: str | None = None,
     limit: int = 30,
 ) -> list[dict[str, Any]]:
-    """Időrendi nézet — azt adja, amit a szemantikus keresés rosszul csinál."""
+    """Chronological view — provides what semantic search does poorly."""
     q = ("SELECT id, kind, title, occurred_at, duration_sec FROM recordings WHERE 1=1")
     args: list[Any] = []
     if start:
@@ -682,7 +696,7 @@ def stats(db: sqlite3.Connection) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# Állítás-réteg írás-oldala (M1)
+# Assertion layer, write side (M1)
 # ---------------------------------------------------------------------------
 
 def save_assertion(
@@ -696,14 +710,15 @@ def save_assertion(
     source_chunk_id: int | None = None,
     confidence: float | None = None,
 ) -> int:
-    """Új állítás mentése — embedding + FTS + vec egy tranzakcióban.
+    """Save a new assertion — embedding + FTS + vec in one transaction.
 
-    A `source` kötelező és zárt készletű (poisoning-védelem): 'extracted'
-    (LLM nyerte ki átiratból, source_chunk_id-vel), 'user_stated' (a
-    felhasználó mondta ki explicit), 'agent' (AI-eszköz mentette MCP-n át).
+    `source` is mandatory and a closed set (poisoning defense): 'extracted'
+    (extracted from a transcript by an LLM, with source_chunk_id),
+    'user_stated' (explicitly stated by the user), 'agent' (saved by an AI
+    tool over MCP).
     """
     if source not in ("extracted", "user_stated", "agent"):
-        raise ValueError(f"érvénytelen source: {source!r}")
+        raise ValueError(f"invalid source: {source!r}")
     model_id, dim, style = active_model(db)
     tag = _model_tag(model_id)
     vec = embed_passages([text], style)[0]
@@ -728,8 +743,9 @@ def save_assertion(
 
 
 def supersede_assertion(db: sqlite3.Connection, old_id: int, new_id: int) -> bool:
-    """A régi állítás felülírás-jelölése. SOHA nem törlés: az invalidated_at
-    + superseded_by lánc adja a "mit hittünk júliusban" lekérdezhetőséget."""
+    """Mark the old assertion as superseded. NEVER a deletion: the
+    invalidated_at + superseded_by chain provides the "what did we believe
+    in July" queryability."""
     cur = db.execute(
         "UPDATE assertions SET invalidated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now'), "
         "superseded_by=? WHERE id=? AND invalidated_at IS NULL",
@@ -742,8 +758,9 @@ def supersede_assertion(db: sqlite3.Connection, old_id: int, new_id: int) -> boo
 def similar_assertions(
     db: sqlite3.Connection, text: str, top_k: int = 3
 ) -> list[dict[str, Any]]:
-    """A szöveghez leghasonlóbb ÉLŐ állítások — duplikátum-gyanú jelzésére
-    (az MCP write-út LLM nélkül fut, itt csak vektor-távolság van)."""
+    """The LIVE assertions most similar to the text — for flagging suspected
+    duplicates (the MCP write path runs without an LLM, only vector distance
+    is available here)."""
     model_id, _, style = active_model(db)
     tag = _model_tag(model_id)
     vec = embed_query(text, style)
@@ -765,15 +782,15 @@ def similar_assertions(
 
 
 def build_profile(db: sqlite3.Connection, max_per_type: int = 6) -> str:
-    """~500 tokenes "ki vagyok / mi fut most" mag a friss ÉLŐ állításokból.
-    Session-start injektáláshoz és a profile MCP-toolhoz."""
-    lines = ["# Lavox Memory — aktuális kép", ""]
+    """~500-token "who am I / what is in flight" core from recent LIVE
+    assertions. For session-start injection and the profile MCP tool."""
+    lines = ["# Lavox Memory — current picture", ""]
     label = {
-        "decision": "Érvényes döntések",
-        "commitment": "Élő ígéretek",
-        "task": "Nyitott feladatok",
-        "fact": "Fontos tények",
-        "preference": "Preferenciák",
+        "decision": "Valid decisions",
+        "commitment": "Open commitments",
+        "task": "Open tasks",
+        "fact": "Key facts",
+        "preference": "Preferences",
     }
     for typ in ("decision", "commitment", "task", "fact", "preference"):
         rows = db.execute(
@@ -792,8 +809,8 @@ def build_profile(db: sqlite3.Connection, max_per_type: int = 6) -> str:
                 d = json.loads(data)
                 alts = d.get("alternatives") or []
                 if alts:
-                    lines.append(f"  (elvetve: {', '.join(str(a) for a in alts[:3])})")
+                    lines.append(f"  (rejected: {', '.join(str(a) for a in alts[:3])})")
         lines.append("")
     if len(lines) <= 2:
-        return "A memóriában még nincsenek kinyert állítások."
+        return "The memory contains no extracted assertions yet."
     return "\n".join(lines)

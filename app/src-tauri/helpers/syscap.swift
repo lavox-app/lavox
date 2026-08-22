@@ -1,18 +1,19 @@
-// syscap — rendszerhang- (és opcionálisan képernyő-) rögzítő helper (ScreenCaptureKit).
-// A Hangar bar meeting-felvétele indítja/állítja: a MÁSIK résztvevők hangját
-// rögzíti (minden rendszerhang, a saját process hangja nélkül) WAV-ba, és
-// --video módban a képernyőt is (H.264 .mov, rendszerhang + mikrofon hanggal).
+// syscap — system-audio (and optionally screen) capture helper (ScreenCaptureKit).
+// Started/stopped by the Hangar bar's meeting recording: it records the OTHER
+// participants' audio (all system audio, excluding this process's own output)
+// to WAV, and in --video mode the screen as well (H.264 .mov, with system
+// audio + microphone).
 //
-// Használat:   syscap <kimenet.wav> [--video <kimenet.mov>]
-// Leállítás:   SIGTERM/SIGINT VAGY stdin lezárása (a Rust ezt csinálja).
-// Kimenet:     "READY" sor amikor a capture ténylegesen elindult,
-//              "DONE <path>" sikeres lezáráskor.
-// Kilépéskód:  0 = ok · 2 = nincs Screen Recording engedély / indítási hiba
+// Usage:       syscap <out.wav> [--video <out.mov>]
+// Shutdown:    SIGTERM/SIGINT OR closing stdin (that's what the Rust side does).
+// Output:      a "READY" line once capture has actually started,
+//              "DONE <path>" on successful finalization.
+// Exit code:   0 = ok · 2 = no Screen Recording permission / startup error
 //
-// FONTOS (TCC): a Screen Recording engedély a SZÜLŐ apphoz (hangar.app)
-// kötődik — a stabil codesign cert miatt build-ek közt megmarad.
+// IMPORTANT (TCC): the Screen Recording permission is bound to the PARENT app
+// (hangar.app) — thanks to the stable codesign cert it survives across builds.
 //
-// Fordítás: a src-tauri/build.rs végzi automatikusan (mtime-alapú újrafordítás).
+// Compilation: handled automatically by src-tauri/build.rs (mtime-based rebuild).
 
 import Foundation
 import ScreenCaptureKit
@@ -30,8 +31,8 @@ final class AudioWriter: NSObject, SCStreamOutput, SCStreamDelegate {
     private var audioCount = 0
 
     func stream(_ stream: SCStream, didOutputSampleBuffer sb: CMSampleBuffer, of type: SCStreamOutputType) {
-        // A video frame-eket eldobjuk — csak azért van video output, mert nélküle
-        // több macOS verzión az audio pipeline el sem indul.
+        // Video frames are dropped — the video output only exists because on
+        // several macOS versions the audio pipeline won't even start without it.
         if type == .screen {
             videoCount += 1
             if videoCount == 1 || videoCount % 30 == 0 {
@@ -50,7 +51,7 @@ final class AudioWriter: NSObject, SCStreamOutput, SCStreamDelegate {
             guard let fmtDesc = sb.formatDescription else { return }
             let fmt = AVAudioFormat(cmAudioFormatDescription: fmtDesc)
             if file == nil {
-                // WAV (RIFF, 16-bit int) fájl; a feldolgozó formátum a stream Float32-je.
+                // WAV (RIFF, 16-bit int) file; the processing format is the stream's Float32.
                 let settings: [String: Any] = [
                     AVFormatIDKey: kAudioFormatLinearPCM,
                     AVSampleRateKey: fmt.sampleRate,
@@ -103,7 +104,7 @@ struct SysCap {
         if let idx = CommandLine.arguments.firstIndex(of: "--video"), idx + 1 < CommandLine.arguments.count {
             videoURL = URL(fileURLWithPath: CommandLine.arguments[idx + 1])
         }
-        // A rögzítendő kijelző indexe (a bar képernyő-választója; 0 = első/fő).
+        // Index of the display to capture (the bar's screen picker; 0 = first/main).
         var displayIndex = 0
         if let idx = CommandLine.arguments.firstIndex(of: "--display"), idx + 1 < CommandLine.arguments.count {
             displayIndex = Int(CommandLine.arguments[idx + 1]) ?? 0
@@ -112,11 +113,11 @@ struct SysCap {
         let writer = AudioWriter(url: url)
         let stream: SCStream
         do {
-            // Ha nincs Screen Recording engedély, ez dob → exit 2, a Rust
-            // mikrofon-only módra esik vissza és szól a usernek.
+            // Without the Screen Recording permission this throws → exit 2; the
+            // Rust side falls back to microphone-only mode and notifies the user.
             let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
-            // A kiválasztott kijelző (a bar képernyő-választója); ha az index
-            // kilóg, az elsőre esünk vissza.
+            // The selected display (the bar's screen picker); if the index is
+            // out of range, fall back to the first one.
             let display: SCDisplay
             if displayIndex >= 0 && displayIndex < content.displays.count {
                 display = content.displays[displayIndex]
@@ -130,14 +131,14 @@ struct SysCap {
             let cfg = SCStreamConfiguration()
             cfg.capturesAudio = true
             cfg.excludesCurrentProcessAudio = true
-            // KRITIKUS: a sampleRate/channelCount explicit kell — a default 0
-            // némán kikapcsolja az audio-t. A writer az első bufferből veszi
-            // át a tényleges formátumot, így eltérés sosem lehet.
+            // CRITICAL: sampleRate/channelCount must be explicit — the default 0
+            // silently disables audio. The writer adopts the actual format from
+            // the first buffer, so a mismatch is impossible.
             cfg.sampleRate = 48000
             cfg.channelCount = 2
 
             if let videoURL {
-                // VIDEO MÓD: valódi felbontás (max 1920 széles), 20 fps, kurzorral.
+                // VIDEO MODE: real resolution (max 1920 wide), 20 fps, with cursor.
                 let scale = 2.0
                 let pw = Double(display.width) * scale
                 let ph = Double(display.height) * scale
@@ -147,12 +148,12 @@ struct SysCap {
                 cfg.minimumFrameInterval = CMTime(value: 1, timescale: 20)
                 cfg.showsCursor = true
                 cfg.queueDepth = 6
-                // A mikrofont SZÁNDÉKOSAN nem vesszük a .mov-ba: a hangszóró-
-                // áthallás visszhangot okozna. A dashboard a videó alá a
-                // visszhang-szűrt kevert sávot (mic+system, ducking) játssza.
+                // The microphone is INTENTIONALLY kept out of the .mov: speaker
+                // bleed-through would cause echo. The dashboard plays the
+                // echo-filtered mixed track (mic+system, ducking) under the video.
             } else {
-                // AUDIO-ONLY MÓD: minimál video config — az audio pipeline
-                // működéséhez kell egy élő video output is (SCK-sajátosság).
+                // AUDIO-ONLY MODE: minimal video config — the audio pipeline
+                // needs a live video output to work (an SCK quirk).
                 cfg.width = 64
                 cfg.height = 36
                 cfg.minimumFrameInterval = CMTime(value: 1, timescale: 30)
@@ -182,7 +183,7 @@ struct SysCap {
             exit(2)
         }
 
-        // Leállítás-kezelés: SIGTERM/SIGINT + stdin EOF (a szülő lezárja a pipe-ot).
+        // Shutdown handling: SIGTERM/SIGINT + stdin EOF (the parent closes the pipe).
         let stopOnce = OnceFlag()
         let hasVideo = videoURL != nil
         let shutdown: @Sendable () -> Void = {
@@ -190,8 +191,8 @@ struct SysCap {
             Task {
                 try? await stream.stopCapture()
                 writer.close()
-                // Video módban a .mov moov-atom finalizálásának időt kell hagyni,
-                // különben csonka (rossz duration-ű) fájl marad.
+                // In video mode the .mov moov-atom finalization needs some time,
+                // otherwise a truncated file (with a wrong duration) is left behind.
                 if hasVideo {
                     try? await Task.sleep(nanoseconds: 1_200_000_000)
                 }
@@ -211,20 +212,20 @@ struct SysCap {
         sigInt.resume()
 
         DispatchQueue.global().async {
-            // Blokkoló olvasás: ha a szülő lezárja az stdint (vagy meghal), EOF jön.
+            // Blocking read: if the parent closes stdin (or dies), EOF arrives.
             let data = FileHandle.standardInput.readDataToEndOfFile()
             _ = data
             shutdown()
         }
 
-        // Életben tartás.
+        // Keep-alive.
         while true {
             try? await Task.sleep(nanoseconds: 1_000_000_000)
         }
     }
 }
 
-/// SCRecordingOutput delegate — hibák jelzése (a finalize a stopCapture-nél történik).
+/// SCRecordingOutput delegate — error reporting (finalization happens at stopCapture).
 @available(macOS 15.0, *)
 final class RecordingDelegate: NSObject, SCRecordingOutputDelegate {
     static let shared = RecordingDelegate()
@@ -233,7 +234,7 @@ final class RecordingDelegate: NSObject, SCRecordingOutputDelegate {
     }
 }
 
-/// Egyszeri futtatás garantálása (signal + stdin EOF versenyhelyzetére).
+/// Guarantees single execution (for the signal + stdin EOF race).
 final class OnceFlag: @unchecked Sendable {
     private var done = false
     private let lock = NSLock()

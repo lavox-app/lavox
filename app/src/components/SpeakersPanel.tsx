@@ -1,8 +1,11 @@
-// Beszélők (diarizáció-enrollment) panel a Beállításokhoz.
-// A backend-parancsok készen állnak (enroll_speaker / list_enrolled_speakers /
-// delete_enrolled_speaker + get/set_server_config) — ez a UI a STATUS.md
-// M5.1 UX-flow-ját valósítja meg: lista (név, mintaszám, „én" jelölés, törlés)
-// + „Új beszélő": név + is_me → 20 mp vezetett felvétel (record_mic) → enroll.
+// Speakers (diarization enrollment) panel for Settings.
+// The backend commands are ready (enroll_speaker / list_enrolled_speakers /
+// delete_enrolled_speaker + get/set_server_config) — this UI implements the
+// STATUS.md M5.1 UX flow: list (name, sample count, "me" marker, delete)
+// + "New speaker": name + is_me → 20s guided recording (record_mic) → enroll.
+//
+// NOTE: t() keys are Hungarian source strings (gettext-style, see lib/i18n.ts)
+// — keep them byte-identical; the English UI copy lives in lib/i18n-en.ts.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Users, Mic, Trash2, RefreshCw } from "lucide-react";
@@ -21,7 +24,9 @@ interface ServerConfig {
   workspace: string;
 }
 
-/** A 20 mp-es enrollment alatt felolvasandó mintaszöveg (magyar, fonéma-gazdag). */
+/** Sample text read aloud during the 20s enrollment (Hungarian, phoneme-rich).
+ *  FUNCTIONAL DATA: this is spoken content for the voice profile, deliberately
+ *  Hungarian — do not translate. */
 const PROMPT_SENTENCE =
   "A gyors barna róka átugrik a lusta kutya fölött, miközben a nyári zápor " +
   "kopogása végigfut a bádogtetőn. Kérek egy dupla eszpresszót citromhéjjal, " +
@@ -39,7 +44,7 @@ export function SpeakersPanel() {
   const [listErr, setListErr] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // Új beszélő űrlap
+  // New speaker form
   const [newName, setNewName] = useState("");
   const [newIsMe, setNewIsMe] = useState(false);
   const [recording, setRecording] = useState(false);
@@ -69,7 +74,7 @@ export function SpeakersPanel() {
     }
   }, [cfg.url]);
 
-  // A lista első betöltése, amint van szerver-URL.
+  // First load of the list as soon as there is a server URL.
   useEffect(() => {
     if (cfg.url.trim()) refresh();
   }, [cfg.url, refresh]);
@@ -85,9 +90,9 @@ export function SpeakersPanel() {
     }
   }, [cfg, refresh]);
 
-  /** A webapp onboardingjában megjelenő kód beváltása — a szerver-config
-   * (url/api_key/workspace) automatikusan a Lavox-felhőre áll, kézi
-   * beállítás nélkül. A háttér-heartbeat innentől magától indul. */
+  /** Redeem the code shown in the webapp's onboarding — the server config
+   * (url/api_key/workspace) automatically points to the Lavox cloud, no manual
+   * setup. The background heartbeat starts on its own from here. */
   const doPair = useCallback(async () => {
     const code = pairCode.trim();
     if (!code || pairing) return;
@@ -111,7 +116,7 @@ export function SpeakersPanel() {
     setEnrollMsg("");
     setRecording(true);
     setCountdown(RECORD_SECONDS);
-    // Kliens-oldali visszaszámláló, amíg a szinkron record_mic fut.
+    // Client-side countdown while the synchronous record_mic runs.
     timerRef.current = window.setInterval(() => {
       setCountdown((c) => (c > 0 ? c - 1 : 0));
     }, 1000);
@@ -157,8 +162,8 @@ export function SpeakersPanel() {
         {t("A meeting-átiratban név szerint azonosítja, ki beszél. Rögzíts 20 mp hangmintát beszélőnként.")}
       </p>
 
-      {/* Felhő-párosítás: a webapp onboardingja mutat egy kódot, azt kell ide
-          beírni. Sikeres párosítás után a szerver-mezők maguktól kitöltődnek. */}
+      {/* Cloud pairing: the webapp's onboarding shows a code to enter here.
+          After a successful pairing, the server fields fill in by themselves. */}
       <div className="setting-row" style={{ gap: 8 }}>
         <input
           className="api-key-input"
@@ -179,8 +184,8 @@ export function SpeakersPanel() {
       </div>
       {pairMsg && <p className="setting-hint">{pairMsg}</p>}
 
-      {/* Szerver-beállítás (a diarizáció-szerver; lokál vagy cloud) —
-          párosítás után magától kitöltődik, kézzel csak self-hostinghoz kell. */}
+      {/* Server settings (the diarization server; local or cloud) —
+          fills in on its own after pairing; manual entry is only for self-hosting. */}
       <div className="setting-row" style={{ gap: 8 }}>
         <input
           className="api-key-input"
@@ -206,7 +211,7 @@ export function SpeakersPanel() {
         <p className="setting-hint">{t("Add meg a transzkripciós szerver címét a beszélő-profilokhoz.")}</p>
       ) : (
         <>
-          {/* Profil-lista */}
+          {/* Profile list */}
           <div className="setting-row" style={{ marginTop: 10 }}>
             <div className="setting-info">
               <span>{t("Profilok ({n})").replace("{n}", String(speakers.length))}</span>
@@ -241,7 +246,7 @@ export function SpeakersPanel() {
             </ul>
           )}
 
-          {/* Új beszélő */}
+          {/* New speaker */}
           <div className="setting-row" style={{ marginTop: 12, gap: 8 }}>
             <input
               className="api-key-input"

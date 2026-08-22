@@ -1,7 +1,8 @@
-// Videó nézet — Loom-stílusú saját felvételek: képernyő + arc-buborék + hang.
-// A bar Videó-gombja (🎥) készíti; ez a nézet lejátssza a screen.mov-ot és
-// opcionálisan átiratot is kér (felirat/keresés). KÜLÖN a Meetingtől: itt a
-// VIDEÓ a lényeg (lejátszó), nem a diarizált átirat.
+// Video view — Loom-style personal recordings: screen + face bubble + audio.
+// Created by the bar's Video button (🎥); this view plays screen.mov and
+// optionally requests a transcript too (captions/search). SEPARATE from
+// Meetings: here the VIDEO is the point (player), not the diarized transcript.
+// NOTE: t() keys are Hungarian source strings (gettext-style, see lib/i18n.ts).
 import { useCallback, useEffect, useState } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { Video as VideoIcon, FileText, RefreshCw, FolderOpen } from "lucide-react";
@@ -35,7 +36,7 @@ export function VideoView() {
   const refresh = useCallback(async () => {
     try {
       const list = await invoke<MeetingEntry[]>("list_meetings");
-      // CSAK a videó-felvételek (kind=video) — a meetingek a Meeting fülön vannak.
+      // ONLY the video recordings (kind=video) — meetings live on the Meeting tab.
       setVideos(list.filter((m) => m.kind === "video"));
     } catch (e) {
       setError(String(e));
@@ -63,7 +64,7 @@ export function VideoView() {
     setBusy("transcribe");
     setError("");
     try {
-      // A videóhoz is a remote átirat (a saját hangod → felirat/keresés).
+      // Remote transcript for the video too (your own voice → captions/search).
       const c = await invoke<CaptureResult>("remote_transcribe_meeting", {
         recId: selected.id,
         numSpeakers: 1,

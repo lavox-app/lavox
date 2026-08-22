@@ -1,7 +1,10 @@
-// Közös bar-tartalom — a NotchShell és a PillShell IS ezt rendeli, így a gomb-készlet
-// és a viselkedés garantáltan azonos (egy forrás, nem tud újra divergálni).
-// A meglévő `ni-*` glass-stílusokat használja: a pill háttere ugyanaz a sötét
-// füstüveg, mint a notché, tehát a stílusok mindkét héjban helyesek.
+// Shared bar content — BOTH the NotchShell and the PillShell render this, so the
+// button set and the behavior are guaranteed identical (one source, cannot diverge again).
+// Uses the existing `ni-*` glass styles: the pill background is the same dark
+// smoked glass as the notch's, so the styles are correct in both shells.
+//
+// NOTE: t() keys are Hungarian source strings (gettext-style, see lib/i18n.ts)
+// — keep them byte-identical; the English UI copy lives in lib/i18n-en.ts.
 import { motion } from "framer-motion";
 import {
   Mic, Square, Globe, StickyNote, Users, Video, Check,
@@ -24,7 +27,7 @@ export interface BarContentProps {
   meetRec: { kind: "meeting" | "video" } | null;
   fmtElapsed: string;
   reduceMotion: boolean | null;
-  // Videó-vezérlő menü állapot
+  // Video control menu state
   videoMenu: boolean;
   cameraOn: boolean;
   mics: string[];
@@ -37,11 +40,11 @@ export interface BarContentProps {
   onTogglePanel: (p: BarPanelKind) => void;
   onToggleLang: (code: string) => void;
   onStartMeet: () => void;
-  /** Kézi meeting-indítás a barból (kiegészítő/naptár nélkül is). */
+  /** Manual meeting start from the bar (even without the extension/calendar). */
   onStartMeetingManual: () => void;
   onDismissMeet: () => void;
   onStopMeet: () => void;
-  // videó-menü callbackek
+  // video-menu callbacks
   onOpenVideoMenu: () => void;
   onCloseVideoMenu: () => void;
   onStartVideo: () => void;
@@ -73,7 +76,7 @@ function IconBtn({
   );
 }
 
-/** Az 5 direkt akció-gomb — mindkét héjban azonos készlet és stílus. */
+/** The 5 direct action buttons — identical set and style in both shells. */
 function ActionButtons(p: BarContentProps) {
   return (
     <>
@@ -105,11 +108,11 @@ function ActionButtons(p: BarContentProps) {
   );
 }
 
-/** A videó-vezérlő menü sora (a bar footprintje nem változik, csak a tartalom). */
+/** The video control menu row (the bar footprint stays the same, only the content changes). */
 function VideoMenu(p: BarContentProps) {
   const recording = !!p.meetRec && p.meetRec.kind === "video";
   if (recording) {
-    // Felvétel alatt: leállítás + kamera-toggle + timer (a pause külön körben jön).
+    // While recording: stop + camera toggle + timer (pause comes in a later round).
     return (
       <>
         <motion.button
@@ -130,7 +133,7 @@ function VideoMenu(p: BarContentProps) {
       </>
     );
   }
-  // Felvétel előtt: indítás + kamera + mic + képernyő + vissza.
+  // Before recording: start + camera + mic + screen + back.
   return (
     <>
       <IconBtn onClick={p.onStartVideo} title={t("Felvétel indítás")} active>
@@ -152,11 +155,11 @@ function VideoMenu(p: BarContentProps) {
   );
 }
 
-/** A bar közép-sávjának állapotfüggő tartalma (felvétel/átirat/meeting/vezérlők). */
+/** State-dependent content of the bar's center strip (recording/transcript/meeting/controls). */
 export function BarContent(props: BarContentProps) {
   const { phase, levels, meetPrompt, meetRec, fmtElapsed, videoMenu, onMic, onStartMeet, onDismissMeet, onStopMeet } = props;
 
-  // A videó-menü (ha nyitva) MINDENT visz — a start/stop/kamera/mic/képernyő itt van.
+  // The video menu (when open) takes over EVERYTHING — start/stop/camera/mic/screen live here.
   if (videoMenu) {
     return <VideoMenu {...props} />;
   }
@@ -219,7 +222,7 @@ export function BarContent(props: BarContentProps) {
   return <ActionButtons {...props} />;
 }
 
-/** A nyelv/mic/képernyő al-panel — mindkét héj alá kerülhet. */
+/** The language/mic/screen sub-panel — can appear under either shell. */
 export function BarPanel(props: BarContentProps) {
   const {
     panel, langs, languages, mics, displays, selectedMic, selectedDisplay,

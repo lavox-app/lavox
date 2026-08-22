@@ -8,10 +8,10 @@ import {
 
 const AUTO_RECORD_KEY = "lavox-auto-record";
 
-/** A naptár-kapcsolat állapota a RUST-oldali token-tárból.
- *  A refresh token ott él (0600-as fájl), nem localStorage-ban.
- *  `configured` = a build tartalmaz-e Google desktop-kliens azonosítót;
- *  enélkül a bejelentkezés-gombot nincs értelme megmutatni. */
+/** Calendar-connection status from the RUST-side token store.
+ *  The refresh token lives there (0600 file), not in localStorage.
+ *  `configured` = whether the build contains a Google desktop-client ID;
+ *  without it there is no point showing the sign-in button. */
 export type CalendarStatus = {
   configured: boolean;
   connected: boolean;
@@ -39,16 +39,16 @@ export function saveAutoRecord(enabled: boolean) {
   invoke("set_auto_record", { enabled }).catch(() => {});
 }
 
-/** Natív bejelentkezés: a Rust nyitja a rendszer-böngészőt, elfogja a
- *  loopback-redirectet, és access+REFRESH tokenre vált. A hívás addig blokkol,
- *  amíg a user végigmegy a Google hozzájáruláson (vagy 3 perc után lejár). */
+/** Native sign-in: Rust opens the system browser, intercepts the loopback
+ *  redirect, and exchanges it for access+REFRESH tokens. The call blocks until
+ *  the user completes the Google consent flow (or times out after 3 minutes). */
 export async function googleLogin(): Promise<{ email: string | null }> {
   return invoke<{ email: string | null }>("calendar_login");
 }
 
 export async function syncTokenToBackend() {
-  // A token a Rust-oldalon él és magától frissül; itt már csak az
-  // auto-record beállítást kell szinkronban tartani.
+  // The token lives on the Rust side and refreshes itself; here we only
+  // need to keep the auto-record setting in sync.
   const autoRecord = loadAutoRecord();
   await invoke("set_auto_record", { enabled: autoRecord });
 }
@@ -78,8 +78,8 @@ export function listenMeetingStarting(
         title: `Meeting: ${m.title}`,
         body:
           mins > 0
-            ? `${mins} perc múlva indul (${m.duration_minutes} perces)`
-            : `Most kezdődik (${m.duration_minutes} perces)`,
+            ? `Starts in ${mins} min (${m.duration_minutes} min)`
+            : `Starting now (${m.duration_minutes} min)`,
       });
     }
     callback(event.payload);
@@ -92,7 +92,7 @@ export function listenAutoRecordStart(callback: (meeting: MeetingEvent) => void)
       await invoke("start_meeting_record");
       callback(event.payload);
     } catch (e) {
-      console.error("Auto-record indítás sikertelen:", e);
+      console.error("Failed to start auto-record:", e);
     }
   });
 }

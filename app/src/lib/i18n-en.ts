@@ -1,10 +1,12 @@
-// EN fordítások — kulcs: a kódban szereplő magyar forrás-string.
-// A sweep (t()-becsomagolás) során minden új kulcs ide kerül.
+// EN translations — key: the Hungarian source string as it appears in the code.
+// Every new key lands here during the sweep (wrapping strings in t()).
+// The Hungarian keys are functional dictionary data (gettext-style, see
+// lib/i18n.ts) — do NOT translate them; only the English values are UI copy.
 export const EN: Record<string, string> = {
   "Nyelv": "Language",
   "Link URL:": "Link URL:",
 
-  // ── modes.tsx (címkék + leírások, a felhasználó felé t()-vel jelennek meg) ──
+  // ── modes.tsx (labels + descriptions, shown to the user via t()) ──
   "Diktálás": "Dictation",
   "Videó": "Video",
   "AI jegyzet": "AI note",
@@ -171,7 +173,7 @@ export const EN: Record<string, string> = {
   "⌃⇧Space — gyors diktálás-overlay előhívása":
     "⌃⇧Space — bring up the quick dictation overlay",
 
-  // ── AI (meeting-összefoglaló) ──
+  // ── AI (meeting summary) ──
   "AI": "AI",
   "A meeting-összefoglalóhoz kell. Saját kulcs, lokálisan tárolva.":
     "Required for meeting summaries. Your own key, stored locally.",
@@ -181,7 +183,7 @@ export const EN: Record<string, string> = {
   "Modell:": "Model:",
   "hamarosan": "coming soon",
 
-  // ── Konfigurálható diktálás-trigger (SettingsView + Overlay) ──
+  // ── Configurable dictation trigger (SettingsView + Overlay) ──
   "Felvétel… (engedd el a triggert a leállításhoz)":
     "Recording… (release the trigger to stop)",
   "Diktálás triggere (nyomva tartás)": "Dictation trigger (hold to talk)",
@@ -190,7 +192,7 @@ export const EN: Record<string, string> = {
   "Alapértelmezett: Fn nyomva tartás. Tiszta Fn-diktáláshoz állítsd: Rendszerbeállítások → Billentyűzet → „🌐 gomb megnyomására: Semmi”.":
     "Default: hold Fn. For clean Fn dictation set: System Settings → Keyboard → “Press 🌐 key to: Do Nothing”.",
 
-  // ── SpeakersPanel.tsx (diarizáció-enrollment) ──
+  // ── SpeakersPanel.tsx (diarization enrollment) ──
   "Beszélők (meeting-felismerés)": "Speakers (meeting recognition)",
   "A meeting-átiratban név szerint azonosítja, ki beszél. Rögzíts 20 mp hangmintát beszélőnként.":
     "Identifies who is speaking by name in meeting transcripts. Record a 20s voice sample per speaker.",
@@ -210,7 +212,7 @@ export const EN: Record<string, string> = {
   "Mentve ✓ — új minta ugyanazzal a névvel = pontosítás":
     "Saved ✓ — a new sample with the same name refines the profile",
 
-  // ── Videó-vezérlő menü a bárban (kamera-ikon → menü) ──
+  // ── Video control menu in the bar (camera icon → menu) ──
   "Felvétel indítás": "Start recording",
   "Előlapi kamera ki/be": "Front camera on/off",
   "Mikrofon választás": "Choose microphone",
@@ -224,12 +226,12 @@ export const EN: Record<string, string> = {
   "Export Obsidianba": "Export to Obsidian",
   "Exportálva ✓": "Exported ✓",
 
-  // ── Modell-letöltés (SettingsView, first-run) ──
+  // ── Model download (SettingsView, first-run) ──
   "Nincs beszédfelismerő modell — töltsd le egy kattintással.":
     "No speech-recognition model — download it with one click.",
   "Letöltés (1,6 GB)": "Download (1.6 GB)",
 
-  // ── MeetingsView (hívás-rögzítés: diarizált átirat → összefoglaló → export) ──
+  // ── MeetingsView (call recording: diarized transcript → summary → export) ──
   "Rögzített hívások: ki mit mondott (diarizált átirat), AI-összefoglaló, Obsidian-export.":
     "Recorded calls: who said what (diarized transcript), AI summary, Obsidian export.",
   "Meetingek ({n})": "Meetings ({n})",
@@ -244,7 +246,7 @@ export const EN: Record<string, string> = {
   "AI-összefoglaló": "AI summary",
   "Újra-átirat": "Re-transcribe",
 
-  // ── VideoView (Loom-stílusú saját videók: lejátszó + átirat) ──
+  // ── VideoView (Loom-style personal videos: player + transcript) ──
   "Loom-stílusú felvételeid: képernyő + arc. Indítás a bár Videó-gombjával.":
     "Your Loom-style recordings: screen + face. Start with the bar's Video button.",
   "Videók ({n})": "Videos ({n})",
@@ -257,7 +259,7 @@ export const EN: Record<string, string> = {
   "Átirat hiba: {msg} — állítsd be a szervert (Beállítások → Beszélők).":
     "Transcript error: {msg} — configure the server (Settings → Speakers).",
 
-  // ── Meet-bővítmény kapcsolat-állapot (SettingsView) ──
+  // ── Meet extension connection status (SettingsView) ──
   "Meet-bővítmény csatlakozva": "Meet extension connected",
   "épp egy meetingben": "in a meeting now",
   "utolsó jelzés {n} perce": "last signal {n} min ago",
@@ -271,7 +273,7 @@ export const EN: Record<string, string> = {
   "Nyiss egy Google Meetet — a bővítmény ikonján ● badge jelenik meg, és ez az állapot zöldre vált.":
     "Open a Google Meet — a ● badge appears on the extension icon and this status turns green.",
 
-  // ── NotesView (a működő Lavox Notes belépője a fő ablakban) ──
+  // ── NotesView (entry point of the working Lavox Notes in the main window) ──
   "Jegyzetek": "Notes",
   "Gyors jegyzetek — diktálj a barból, vagy írj a lebegő jegyzetfüzetben.":
     "Quick notes — dictate from the bar, or write in the floating notebook.",
@@ -280,4 +282,17 @@ export const EN: Record<string, string> = {
   "Jegyzetfüzet megnyitása": "Open notebook",
   "Még nincs jegyzet — nyisd meg a jegyzetfüzetet, vagy diktálj a barból (📝).":
     "No notes yet — open the notebook, or dictate from the bar (📝).",
+
+  // ── modes.tsx (updated mode labels + descriptions) ──
+  "Meeting": "Meeting",
+  "Loom-stílusú saját felvétel: képernyő + arc-buborék + hang, megosztható videó.":
+    "Loom-style personal recording: screen + face bubble + audio, a shareable video.",
+  "Hívás rögzítése: rendszerhang + mikrofon → diarizált átirat (ki mit mondott) + összefoglaló.":
+    "Record a call: system audio + microphone → diarized transcript (who said what) + summary.",
+
+  // ── SpeakersPanel (Hub pairing) ──
+  "Párosítva ✓ — a Hub mostantól a felhős fiókodhoz kapcsolódik":
+    "Paired ✓ — the Hub is now connected to your cloud account",
+  "Párosító kód a webappból (pl. E9MK-G3YD)": "Pairing code from the web app (e.g. E9MK-G3YD)",
+  "Párosítás": "Pair",
 };

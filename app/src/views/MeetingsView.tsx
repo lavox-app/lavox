@@ -1,7 +1,8 @@
-// Meetings nézet — a termék-mag loop: felvételek listája → diarizált átirat
-// (remote szerver) → AI-összefoglaló (OpenRouter) → Obsidian-export.
-// A felvétel maga a barból történik (Videó-gomb / Meet Bridge); ez a nézet a
-// lezárt felvételek feldolgozására való.
+// Meetings view — the product-core loop: list of recordings → diarized
+// transcript (remote server) → AI summary (OpenRouter) → Obsidian export.
+// Recording itself happens from the bar (Video button / Meet Bridge); this view
+// is for processing finished recordings.
+// NOTE: t() keys are Hungarian source strings (gettext-style, see lib/i18n.ts).
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Users, FileDown, Sparkles, RefreshCw, AudioLines } from "lucide-react";
@@ -37,7 +38,7 @@ export function MeetingsView() {
   const refresh = useCallback(async () => {
     try {
       const list = await invoke<MeetingEntry[]>("list_meetings");
-      // CSAK a meetingek (kind=meeting) — a saját videók a Videó fülön vannak.
+      // ONLY the meetings (kind=meeting) — personal videos live on the Video tab.
       setEntries(list.filter((m) => m.kind !== "video"));
     } catch (e) {
       setError(String(e));
@@ -119,8 +120,8 @@ export function MeetingsView() {
   const speakerLabel = (id: string) =>
     capture?.speakers.find((s) => s.id === id)?.label ?? id;
 
-  // Beszélő átnevezése ("tag-once"): a címkére kattintva új nevet adsz, és a
-  // rendszer a klaszter hangját is megtanulja — legközelebb magától felismeri.
+  // Rename a speaker ("tag-once"): click the label to give a new name, and the
+  // system also learns the cluster's voice — recognizing it on its own next time.
   const renameSpeaker = useCallback(
     async (speakerId: string) => {
       if (!capture || !selected || busy) return;

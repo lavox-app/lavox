@@ -1,9 +1,9 @@
-// LLM-vezeték: OpenRouter-hívás + a felhasználó saját API-kulcsának tárolása.
+// LLM plumbing: OpenRouter call + storage of the user's own API key.
 //
-// Korábban ez a `polish.ts`-ben lakott, a diktálás-átíró profilok mellett.
-// A profilokat (Formális/Informális/Marketing/Visual/Coding/Saját + Prompter)
-// kivezettük, mert félkészek voltak; a puszta LLM-hívás viszont kell, mert a
-// meeting-összefoglaló (summarize.ts) erre épül.
+// This used to live in `polish.ts`, next to the dictation rewrite profiles.
+// The profiles (Formal/Informal/Marketing/Visual/Coding/Custom + Prompter)
+// were retired because they were half-finished; the bare LLM call is still
+// needed because the meeting summary (summarize.ts) builds on it.
 
 const OPENROUTER_BASE = "https://openrouter.ai/api/v1";
 

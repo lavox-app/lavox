@@ -1,23 +1,23 @@
-//! M1.4 — ObsidianExporter: `CaptureResult` → struktúrált Obsidian markdown.
+//! M1.4 — ObsidianExporter: `CaptureResult` → structured Obsidian markdown.
 //!
-//! A motor (STT + későbbi LLM-pass) `CaptureResult`-ot állít elő; ez a modul
-//! ebből Obsidian-barát markdownt ír (YAML frontmatter + törzs). Az LLM-pass
-//! ELŐTT a `summary/title/action_items` üres lehet — az export ezt kezeli, nem
-//! hibázik (lásd INTERFACE-CaptureResult.md "Élezetek").
+//! The engine (STT + later LLM pass) produces a `CaptureResult`; this module
+//! turns it into Obsidian-friendly markdown (YAML frontmatter + body). BEFORE
+//! the LLM pass, `summary/title/action_items` may be empty — the export handles
+//! that without failing (see INTERFACE-CaptureResult.md "Edge cases").
 //!
-//! A dátumot (`created_at`) a hívó (frontend) adja át ISO-8601 stringként, így
-//! nincs szükség dátum-crate-re és a Cargo.toml-t sem kell bővíteni.
+//! The date (`created_at`) is passed in by the caller (frontend) as an ISO-8601
+//! string, so no date crate is needed and Cargo.toml stays untouched.
 
 use crate::model::{CaptureResult, CaptureType, Media, Segment, Speaker, Status};
 use crate::transcribe::TranscriptResult;
 
-/// Egy capture exportja: markdown szöveg + a javasolt fájlnév (kiterjesztés nélkül).
+/// Export of one capture: markdown text + the suggested filename (without extension).
 pub struct ExportedNote {
     pub filename: String,
     pub markdown: String,
 }
 
-/// `CaptureResult` → teljes Obsidian markdown (frontmatter + törzs).
+/// `CaptureResult` → full Obsidian markdown (frontmatter + body).
 pub fn capture_to_markdown(c: &CaptureResult) -> String {
     let mut out = String::new();
 
@@ -43,7 +43,7 @@ pub fn capture_to_markdown(c: &CaptureResult) -> String {
     }
     out.push_str("---\n\n");
 
-    // --- Cím ---
+    // --- Title ---
     let title = c
         .title
         .clone()
@@ -51,10 +51,10 @@ pub fn capture_to_markdown(c: &CaptureResult) -> String {
         .unwrap_or_else(|| default_title(c));
     out.push_str(&format!("# {}\n\n", title));
 
-    // --- Összefoglaló (LLM-pass után) ---
+    // --- Summary (after the LLM pass) ---
     if let Some(summary) = &c.summary {
         if !summary.trim().is_empty() {
-            out.push_str("> [!summary] Összefoglaló\n");
+            out.push_str("> [!summary] Summary\n");
             for line in summary.trim().lines() {
                 out.push_str(&format!("> {}\n", line));
             }
@@ -62,28 +62,28 @@ pub fn capture_to_markdown(c: &CaptureResult) -> String {
         }
     }
 
-    // --- Teendők ---
+    // --- Action items ---
     if !c.action_items.is_empty() {
-        out.push_str("## Teendők\n\n");
+        out.push_str("## Action items\n\n");
         for item in &c.action_items {
             out.push_str(&format!("- [ ] {}\n", item));
         }
         out.push('\n');
     }
 
-    // --- Átirat ---
-    out.push_str("## Átirat\n\n");
+    // --- Transcript ---
+    out.push_str("## Transcript\n\n");
     out.push_str(&render_transcript(c));
 
     out
 }
 
-/// Az átirat törzse. Meeting (több beszélő) esetén beszélő-fejlécekkel csoportosít;
-/// diktálás/jegyzet (egy beszélő) esetén folyó szöveg időbélyegekkel.
+/// The transcript body. Meetings (multiple speakers) are grouped under speaker
+/// headers; dictation/notes (single speaker) become flowing text with timestamps.
 fn render_transcript(c: &CaptureResult) -> String {
     let mut out = String::new();
     if c.segments.is_empty() {
-        out.push_str("_(nincs átirat)_\n");
+        out.push_str("_(no transcript)_\n");
         return out;
     }
 
@@ -106,7 +106,7 @@ fn render_transcript(c: &CaptureResult) -> String {
         }
         out.push('\n');
     } else {
-        // Egy beszélő: időbélyeges sorok, beszélő-fejléc nélkül.
+        // Single speaker: timestamped lines, no speaker headers.
         for seg in &c.segments {
             let text = seg.text.trim();
             if text.is_empty() {
@@ -119,9 +119,9 @@ fn render_transcript(c: &CaptureResult) -> String {
     out
 }
 
-/// A nyers `TranscriptResult`-ból (STT kimenet, diarizáció/LLM-pass nélkül)
-/// `CaptureResult`-ot épít, hogy a valós felvétel-flow már ma exportálható legyen.
-/// A `created_at`-ot a hívó adja (ISO-8601). `summary/title/action_items` üres.
+/// Builds a `CaptureResult` from a raw `TranscriptResult` (STT output, no
+/// diarization/LLM pass) so the real recording flow is exportable already today.
+/// `created_at` comes from the caller (ISO-8601). `summary/title/action_items` are empty.
 pub fn transcript_to_capture(
     t: &TranscriptResult,
     created_at: &str,
@@ -146,8 +146,8 @@ pub fn transcript_to_capture(
         .collect();
 
     CaptureResult {
-        // Determinisztikus, idő-alapú id (uuid-crate nélkül); ütközésre nem
-        // érzékeny single-user kontextusban.
+        // Deterministic, time-based id (no uuid crate); collision-insensitive
+        // in a single-user context.
         id: format!("lavox-{}", slugify(created_at)),
         kind: CaptureType::Note,
         status: Status::Final,
@@ -161,7 +161,7 @@ pub fn transcript_to_capture(
         },
         speakers: vec![Speaker {
             id: "S1".to_string(),
-            label: "Én".to_string(),
+            label: "Me".to_string(),
             is_me: true,
         }],
         segments,
@@ -172,7 +172,7 @@ pub fn transcript_to_capture(
     }
 }
 
-/// Markdown előállítása + fájlnév-javaslat egy capture-ból.
+/// Produces the markdown + a filename suggestion for a capture.
 pub fn export_note(c: &CaptureResult) -> ExportedNote {
     let date = date_prefix(&c.created_at);
     let title = c
@@ -187,26 +187,26 @@ pub fn export_note(c: &CaptureResult) -> ExportedNote {
     }
 }
 
-// --- Tauri parancsok ---
+// --- Tauri commands ---
 
-/// A markdownt fájlba írja a célmappába. Visszaadja a teljes útvonalat.
-/// `vault_dir` hiányában: `$HOME/Documents/Lavox`. A mappát létrehozza.
+/// Writes the markdown into the target directory. Returns the full path.
+/// Without `vault_dir`: `$HOME/Documents/Lavox`. Creates the directory.
 fn write_note(note: &ExportedNote, vault_dir: Option<String>) -> Result<String, String> {
     let dir = match vault_dir {
         Some(d) if !d.trim().is_empty() => std::path::PathBuf::from(d),
         _ => {
-            let home = std::env::var("HOME").map_err(|_| "HOME nincs beállítva".to_string())?;
+            let home = std::env::var("HOME").map_err(|_| "HOME is not set".to_string())?;
             std::path::Path::new(&home).join("Documents").join("Lavox")
         }
     };
-    std::fs::create_dir_all(&dir).map_err(|e| format!("mappa létrehozása sikertelen: {e}"))?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("failed to create directory: {e}"))?;
     let path = dir.join(format!("{}.md", note.filename));
-    std::fs::write(&path, &note.markdown).map_err(|e| format!("írás sikertelen: {e}"))?;
+    std::fs::write(&path, &note.markdown).map_err(|e| format!("write failed: {e}"))?;
     Ok(path.to_string_lossy().to_string())
 }
 
-/// Nyers átirat → Obsidian jegyzet. A `created_at`-ot a frontend adja
-/// (`new Date().toISOString()`). Visszaadja a megírt fájl útvonalát.
+/// Raw transcript → Obsidian note. `created_at` comes from the frontend
+/// (`new Date().toISOString()`). Returns the path of the written file.
 #[tauri::command]
 pub fn export_transcript_to_obsidian(
     transcript: TranscriptResult,
@@ -220,7 +220,7 @@ pub fn export_transcript_to_obsidian(
     write_note(&note, vault_dir)
 }
 
-/// Kész `CaptureResult` (pl. LLM-pass után) → Obsidian jegyzet.
+/// Finished `CaptureResult` (e.g. after the LLM pass) → Obsidian note.
 #[tauri::command]
 pub fn export_capture_to_obsidian(
     capture: CaptureResult,
@@ -230,7 +230,7 @@ pub fn export_capture_to_obsidian(
     write_note(&note, vault_dir)
 }
 
-// --- Segédfüggvények ---
+// --- Helpers ---
 
 fn capture_type_str(t: &CaptureType) -> &'static str {
     match t {
@@ -258,13 +258,13 @@ fn speaker_label(c: &CaptureResult, id: &str) -> String {
 fn default_title(c: &CaptureResult) -> String {
     let kind = match c.kind {
         CaptureType::Meeting => "Meeting",
-        CaptureType::Dictation => "Diktálás",
-        CaptureType::Note => "Jegyzet",
+        CaptureType::Dictation => "Dictation",
+        CaptureType::Note => "Note",
     };
     format!("{} – {}", kind, date_prefix(&c.created_at))
 }
 
-/// ISO-8601 string első 10 karaktere (YYYY-MM-DD); ha rövidebb, "undated".
+/// First 10 characters of an ISO-8601 string (YYYY-MM-DD); "undated" if shorter.
 fn date_prefix(iso: &str) -> String {
     if iso.len() >= 10 {
         iso[..10].to_string()
@@ -273,7 +273,7 @@ fn date_prefix(iso: &str) -> String {
     }
 }
 
-/// Másodperc → `m:ss` (vagy `h:mm:ss` egy óra felett).
+/// Seconds → `m:ss` (or `h:mm:ss` above one hour).
 fn fmt_timestamp(sec: f64) -> String {
     let total = sec.max(0.0) as i64;
     let h = total / 3600;
@@ -286,7 +286,7 @@ fn fmt_timestamp(sec: f64) -> String {
     }
 }
 
-/// Fájlnév-barát slug magyar ékezet-hajtogatással.
+/// Filename-friendly slug with Hungarian accent folding.
 fn slugify(input: &str) -> String {
     let mut out = String::with_capacity(input.len());
     let mut prev_dash = false;
@@ -310,7 +310,7 @@ fn slugify(input: &str) -> String {
     }
 }
 
-/// Magyar (és pár gyakori) ékezetes karakter ASCII-megfelelője.
+/// ASCII equivalent of Hungarian (and a few common) accented characters.
 fn fold_char(ch: char) -> String {
     match ch {
         'á' | 'à' | 'â' | 'ä' | 'ã' => "a".into(),
@@ -342,23 +342,23 @@ mod tests {
         assert!(md.starts_with("---\n"));
         assert!(md.contains("type: meeting"));
         assert!(md.contains("status: final"));
-        assert!(md.contains("language: hu"));
+        assert!(md.contains("language: en"));
         assert!(md.contains("tags: [sales, discovery]"));
     }
 
     #[test]
     fn body_renders_title_summary_and_actions() {
         let md = capture_to_markdown(&sample());
-        assert!(md.contains("# Bevezető hívás – Ügyfél"));
-        assert!(md.contains("> [!summary] Összefoglaló"));
-        assert!(md.contains("- [ ] Ajánlat küldése péntekig"));
+        assert!(md.contains("# Intro call – Client"));
+        assert!(md.contains("> [!summary] Summary"));
+        assert!(md.contains("- [ ] Send the proposal by Friday"));
     }
 
     #[test]
     fn multi_speaker_uses_labels() {
         let md = capture_to_markdown(&sample());
-        assert!(md.contains("**Dávid** [0:00]"));
-        assert!(md.contains("**Ügyfél** [0:04]"));
+        assert!(md.contains("**David** [0:00]"));
+        assert!(md.contains("**Client** [0:04]"));
     }
 
     #[test]
@@ -368,14 +368,15 @@ mod tests {
         c.title = None;
         c.action_items.clear();
         let md = capture_to_markdown(&c);
-        // Nem panikol, és nincs üres "Teendők" / "Összefoglaló" szekció.
-        assert!(!md.contains("## Teendők"));
+        // Does not panic, and no empty "Action items" / "Summary" sections.
+        assert!(!md.contains("## Action items"));
         assert!(!md.contains("[!summary]"));
         assert!(md.contains("# Meeting – 2026-06-22"));
     }
 
     #[test]
     fn slugify_folds_hungarian_accents() {
+        // Hungarian inputs on purpose: they exercise the accent-folding path.
         assert_eq!(slugify("Bevezető hívás – Ügyfél"), "bevezeto-hivas-ugyfel");
         assert_eq!(slugify("  több   szóköz  "), "tobb-szokoz");
         assert_eq!(slugify("!!!"), "note");
@@ -391,7 +392,7 @@ mod tests {
     #[test]
     fn export_note_builds_dated_filename() {
         let note = export_note(&sample());
-        assert_eq!(note.filename, "2026-06-22-bevezeto-hivas-ugyfel");
+        assert_eq!(note.filename, "2026-06-22-intro-call-client");
     }
 
     #[test]
@@ -401,15 +402,15 @@ mod tests {
             segments: vec![crate::transcribe::TranscriptSegment {
                 start_ms: 0,
                 end_ms: 2000,
-                text: "Teszt mondat.".into(),
+                text: "Test sentence.".into(),
             }],
-            full_text: "Teszt mondat.".into(),
+            full_text: "Test sentence.".into(),
         };
         let c = transcript_to_capture(&t, "2026-06-24T10:00:00Z", "captures/a.wav", None);
         assert_eq!(c.speakers.len(), 1);
         assert!(c.speakers[0].is_me);
         assert!((c.duration_sec - 2.0).abs() < 1e-6);
         let md = capture_to_markdown(&c);
-        assert!(md.contains("[0:00] Teszt mondat."));
+        assert!(md.contains("[0:00] Test sentence."));
     }
 }

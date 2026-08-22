@@ -1,14 +1,14 @@
-"""Lavox Memory — backfill: meglévő meetingek betöltése a memóriába.
+"""Lavox Memory — backfill: load existing meetings into the memory.
 
-Bemenet: JSONL (soronként egy meeting), a VPS Postgresből exportálva:
+Input: JSONL (one meeting per line), exported from the VPS Postgres:
   {"id","title","kind","occurred_at","duration_sec","participants":[],
    "transcript":[{"start","end","text","speaker"}], "speakers":[{"id","label"}]}
 
-A speaker-azonosítókat (spk_xxx / SPEAKER_01) a speakers-tábla label-jeire
-oldjuk fel, hogy a chunk-fejlécben nevek legyenek — a kontextus-injekció
-értéke pont a kereshető neveken múlik.
+Speaker identifiers (spk_xxx / SPEAKER_01) are resolved to the labels in the
+speakers table so the chunk headers contain names — the value of context
+injection hinges precisely on searchable names.
 
-Futtatás:
+Usage:
   .venv/bin/python3 backfill_memory.py meetings.jsonl [--force]
 """
 
@@ -70,7 +70,7 @@ def main() -> int:
                   + (f" ({res.get('chunks')} chunk)" if res.get("chunks") else ""))
             if res["status"] == "ok":
                 ok += 1
-    print(f"\nKész: {ok}/{total} betöltve.")
+    print(f"\nDone: {ok}/{total} ingested.")
     print(json.dumps(memory.stats(db), ensure_ascii=False, indent=2))
     return 0
 

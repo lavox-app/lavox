@@ -1,25 +1,26 @@
 #!/usr/bin/env python3
 """
-Fiók-réteg verifikáció — a Fázis 1 elfogadási tesztje.
+Account-layer verification — the Phase 1 acceptance test.
 
-Futtatás (bármilyen Postgres ellen, ami NEM a produkciós adat):
+Usage (against any Postgres that is NOT production data):
 
     LAVOX_MULTI_TENANT=1 \
     LAVOX_PG_DSN='postgresql://user:pass@host:5432/dbname' \
     .venv/bin/python verify_accounts.py
 
-Amit ellenőriz:
-  1. séma létrehozható (idempotens)
-  2. regisztráció → user + saját workspace + token
-  3. a jelszó SOHA nem plaintextben van a DB-ben (scrypt hash)
-  4. helyes/rossz jelszavas belépés
-  5. token → user feloldás
-  6. IDOR: user "A" NEM tagja user "B" workspace-ének
-  7. duplikált e-mail elutasítva
-  8. rövid jelszó elutasítva
-  9. token visszavonás
+What it checks:
+  1. schema can be created (idempotent)
+  2. registration → user + own workspace + token
+  3. the password is NEVER in the DB in plaintext (scrypt hash)
+  4. login with correct/wrong password
+  5. token → user resolution
+  6. IDOR: user "A" is NOT a member of user "B"'s workspace
+  7. duplicate e-mail rejected
+  8. short password rejected
+  9. token revocation
 
-A teszt saját, véletlen e-mail címekkel dolgozik, és a végén takarít maga után.
+The test works with its own random e-mail addresses and cleans up after
+itself at the end.
 """
 
 import os
@@ -43,12 +44,12 @@ def check(label: str, ok: bool, extra: str = "") -> None:
 
 def main() -> int:
     if not accounts.available():
-        print("HIBA: LAVOX_MULTI_TENANT=1 és LAVOX_PG_DSN kell a teszthez.")
+        print("ERROR: LAVOX_MULTI_TENANT=1 and LAVOX_PG_DSN are required for the test.")
         return 2
 
     accounts.init_schema()
-    accounts.init_schema()  # idempotencia
-    check("séma létrehozható és idempotens", True)
+    accounts.init_schema()  # idempotence
+    check("schema can be created and is idempotent", True)
 
     suffix = uuid.uuid4().hex[:8]
     email_a = f"verify-a-{suffix}@example.com"
@@ -62,77 +63,77 @@ def main() -> int:
         b = accounts.register(email_b, pw_b, "Verify B")
         created += [a["user"]["id"], b["user"]["id"]]
 
-        check("regisztráció → user + workspace + token",
+        check("registration → user + workspace + token",
               bool(a["user"]["id"] and a["workspaces"] and a["token"]))
-        check("a saját workspace tulajdonosa a user",
+        check("the user owns their own workspace",
               a["workspaces"][0]["role"] == "owner")
 
-        # 3 — a jelszó nem tárolódik visszafejthetően
+        # 3 — the password is not stored recoverably
         with accounts._conn() as conn:
             row = conn.execute(
                 "SELECT password_hash FROM users WHERE email=%s", (email_a,)
             ).fetchone()
         stored = row["password_hash"]
-        check("a jelszó nincs plaintextben a DB-ben",
+        check("the password is not in the DB in plaintext",
               pw_a not in stored and stored.startswith("scrypt$"),
-              f"tárolt formátum: {stored.split('$')[0]}")
+              f"stored format: {stored.split('$')[0]}")
 
-        # 4 — belépés
-        check("helyes jelszóval belép", accounts.login(email_a, pw_a) is not None)
-        check("rossz jelszóval NEM lép be", accounts.login(email_a, "rossz-jelszo") is None)
-        check("ismeretlen e-maillel NEM lép be",
+        # 4 — login
+        check("logs in with the correct password", accounts.login(email_a, pw_a) is not None)
+        check("does NOT log in with a wrong password", accounts.login(email_a, "rossz-jelszo") is None)
+        check("does NOT log in with an unknown e-mail",
               accounts.login(f"nincs-{suffix}@example.com", pw_a) is None)
 
-        # 5 — token feloldás
+        # 5 — token resolution
         principal = accounts.user_by_token(a["token"])
-        check("token feloldja a usert",
+        check("token resolves the user",
               principal is not None and principal["user"]["email"] == email_a)
-        check("hamis token nem old fel semmit",
+        check("a fake token resolves nothing",
               accounts.user_by_token("nem-letezo-token") is None)
 
-        # 6 — IDOR: a lényeg
+        # 6 — IDOR: the crux
         ws_a = a["workspaces"][0]["id"]
         ws_b = b["workspaces"][0]["id"]
-        check("A tagja a SAJÁT workspace-ének",
+        check("A is a member of their OWN workspace",
               accounts.is_member(a["user"]["id"], ws_a))
-        check("IDOR: A NEM tagja B workspace-ének",
+        check("IDOR: A is NOT a member of B's workspace",
               not accounts.is_member(a["user"]["id"], ws_b),
               f"{ws_a} vs {ws_b}")
-        check("érvénytelen workspace-azonosító elutasítva",
+        check("invalid workspace identifier rejected",
               not accounts.is_member(a["user"]["id"], "../../etc/passwd"))
 
-        # 7-8 — input validáció
+        # 7-8 — input validation
         try:
             accounts.register(email_a, "Masik-Jelszo-789", "Duplikalt")
-            check("duplikált e-mail elutasítva", False, "nem dobott hibát")
+            check("duplicate e-mail rejected", False, "did not raise an error")
         except ValueError:
-            check("duplikált e-mail elutasítva", True)
+            check("duplicate e-mail rejected", True)
 
         try:
             accounts.register(f"rovid-{suffix}@example.com", "rovid", "Rovid")
-            check("rövid jelszó elutasítva", False, "nem dobott hibát")
+            check("short password rejected", False, "did not raise an error")
         except ValueError:
-            check("rövid jelszó elutasítva", True)
+            check("short password rejected", True)
 
-        # 9 — visszavonás
+        # 9 — revocation
         accounts.revoke_token(a["token"])
-        check("visszavont token már nem old fel",
+        check("a revoked token no longer resolves",
               accounts.user_by_token(a["token"]) is None)
 
     finally:
-        # takarítás — a workspace/tagság/token CASCADE-del megy
+        # cleanup — workspace/membership/token go via CASCADE
         if created:
             with accounts._conn() as conn:
                 conn.execute(
                     "DELETE FROM users WHERE id = ANY(%s)", (created,)
                 )
-            print(f"\n(takarítás: {len(created)} teszt-user törölve)")
+            print(f"\n(cleanup: {len(created)} test users deleted)")
 
     print()
     if FAIL:
-        print(f"EREDMÉNY: {FAIL} teszt BUKOTT")
+        print(f"RESULT: {FAIL} tests FAILED")
         return 1
-    print("EREDMÉNY: minden teszt átment")
+    print("RESULT: all tests passed")
     return 0
 
 

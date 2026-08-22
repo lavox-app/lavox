@@ -1,21 +1,21 @@
 //! M1.2 — whisper.cpp transcription via whisper-rs.
 //! Takes a WAV file path + model path → returns segments with timestamps.
 //!
-//! Hallucináció-védelem (2026-08-14): a whisper a csendre — a magyar
-//! tanítóanyag (feliratos videók) miatt — tipikusan "köszönöm"-szerű záró
-//! mondatokat vagy "namaste"-t talál ki. A védelem négy rétege:
-//!   1. a modell egyszer töltődik be és memóriában marad (a "lassú eleje" oka
-//!      az volt, hogy MINDEN diktálás újratöltötte az 1,6 GB-os modellt),
-//!   2. a felvétel eleji/végi csend levágása (a push-to-talk mindig tartalmaz
-//!      billentyű-zajt + levegővételt a széleken) — ha az egész felvétel
-//!      csend, a whisper el sem indul,
-//!   3. no_context: a diktálások függetlenek, nincs "köszönöm, köszönöm"
-//!      ismétlés-görgetés az előző pufferből,
-//!   4. szegmens-szintű utószűrés: amit a whisper olyan időablakra írt,
-//!      amelyben a hang energiája csend-szintű, az hallucináció → eldobjuk;
-//!      magas no-speech valószínűségű ablakban az ismert hallucináció-frázisok
-//!      szintén kiesnek (de valódi kimondott "köszönöm"-öt az energia-mérés
-//!      megvéd).
+//! Hallucination protection (2026-08-14): on silence, whisper — due to its
+//! Hungarian training data (subtitled videos) — typically invents closing
+//! phrases like "köszönöm" ("thank you") or "namaste". Four layers of defense:
+//!   1. the model is loaded once and stays in memory (the "slow start" was
+//!      caused by EVERY dictation reloading the 1.6 GB model),
+//!   2. leading/trailing silence is trimmed (push-to-talk always includes
+//!      key noise + a breath at the edges) — if the whole recording is
+//!      silence, whisper is never started,
+//!   3. no_context: dictations are independent, so there is no "köszönöm,
+//!      köszönöm" repetition rolling over from the previous buffer,
+//!   4. segment-level post-filtering: anything whisper wrote for a time window
+//!      whose audio energy is at silence level is a hallucination → dropped;
+//!      in windows with high no-speech probability, known hallucination
+//!      phrases are dropped too (but a genuinely spoken "köszönöm" is
+//!      protected by the energy measurement).
 
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -35,15 +35,15 @@ pub struct TranscriptResult {
     pub full_text: String,
 }
 
-// ── Csend-detektálás ────────────────────────────────────────────────────────
-/// 20 ms ablak 16 kHz-en.
+// ── Silence detection ───────────────────────────────────────────────────────
+/// 20 ms window at 16 kHz.
 const WINDOW: usize = 320;
-/// RMS-küszöb, ami alatt egy ablak csendnek számít (~ -44 dBFS). A tipikus
-/// szoba-alapzaj ez alatt marad, halk beszéd is jóval fölötte van.
+/// RMS threshold below which a window counts as silence (~ -44 dBFS). Typical
+/// room noise floor stays below it; even quiet speech is well above it.
 const SILENCE_RMS: f32 = 0.006;
-/// Margó a vágásnál (250 ms), hogy a szóvégek/szókezdetek ne csorbuljanak.
+/// Margin around the cut (250 ms) so word starts/ends are not clipped.
 const EDGE_MARGIN: usize = 4000;
-/// Ennél rövidebb tényleges beszéd (300 ms) → üres eredmény, whisper nélkül.
+/// Less actual speech than this (300 ms) → empty result, without whisper.
 const MIN_SPEECH: usize = 4800;
 
 fn rms(chunk: &[f32]) -> f32 {
@@ -53,8 +53,8 @@ fn rms(chunk: &[f32]) -> f32 {
     (chunk.iter().map(|s| s * s).sum::<f32>() / chunk.len() as f32).sqrt()
 }
 
-/// Eleji/végi csend levágása. `None` = nincs beszéd a felvételben.
-/// Vissza: (vágott szelet, a vágás kezdete ms-ben — a timestampek visszatolásához).
+/// Trims leading/trailing silence. `None` = no speech in the recording.
+/// Returns: (trimmed slice, cut start in ms — for shifting timestamps back).
 fn trim_silence(samples: &[f32]) -> Option<(&[f32], i64)> {
     let n = samples.len();
     let mut first: Option<usize> = None;
@@ -79,8 +79,8 @@ fn trim_silence(samples: &[f32]) -> Option<(&[f32], i64)> {
     Some((&samples[start..end], (start as i64) * 1000 / 16_000))
 }
 
-/// Van-e legalább egy beszéd-erősségű 20 ms-ablak a szegmens időtartományában?
-/// (A timestampek a VÁGOTT hangra vonatkoznak — a hívó is azt adja át.)
+/// Is there at least one speech-level 20 ms window in the segment's time range?
+/// (Timestamps refer to the TRIMMED audio — the caller passes that as well.)
 fn segment_has_speech(samples: &[f32], start_ms: i64, end_ms: i64) -> bool {
     let a = ((start_ms.max(0) as usize) * 16).min(samples.len());
     let b = ((end_ms.max(0) as usize) * 16).min(samples.len());
@@ -90,9 +90,11 @@ fn segment_has_speech(samples: &[f32], start_ms: i64, end_ms: i64) -> bool {
     samples[a..b].chunks(WINDOW).any(|c| rms(c) > SILENCE_RMS)
 }
 
-/// Ismert csend-hallucinációk (kisbetűs, írásjel nélküli alak). CSAK magas
-/// no-speech valószínűség mellett esnek ki — valódi kimondott "köszönöm"-nél
-/// a no-speech alacsony és az energia-ellenőrzés is átengedi.
+/// Known silence hallucinations (lowercase, punctuation-free form). The
+/// Hungarian entries are whisper ASR hallucination artifacts matched against
+/// Hungarian speech — keep them byte-identical, do NOT translate. They are
+/// dropped ONLY under high no-speech probability — for a genuinely spoken
+/// "köszönöm", no-speech is low and the energy check lets it through.
 const HALLUCINATIONS: &[&str] = &[
     "köszönöm",
     "köszönöm szépen",
@@ -118,11 +120,11 @@ fn is_hallucination(text: &str) -> bool {
     HALLUCINATIONS.iter().any(|h| t == *h)
 }
 
-// ── Modell-gyorsítótár ──────────────────────────────────────────────────────
-/// A betöltött whisper-kontextus (modell) memóriában marad az első diktálás
-/// után — a modell-betöltés több másodperc, és eddig MINDEN híváskor lefutott.
-/// Ára: a modell (~1,6 GB) rezidens marad; ez a dedikált diktáló-appok
-/// (pl. superwhisper) bevett kompromisszuma a azonnali reakcióidőért.
+// ── Model cache ─────────────────────────────────────────────────────────────
+/// The loaded whisper context (model) stays in memory after the first
+/// dictation — loading takes several seconds and used to run on EVERY call.
+/// Cost: the model (~1.6 GB) stays resident; that is the standard trade-off
+/// dedicated dictation apps (e.g. superwhisper) make for instant response.
 static MODEL_CACHE: OnceLock<Mutex<Option<(String, Arc<WhisperContext>)>>> = OnceLock::new();
 
 fn cached_context(model_path: &str) -> Result<Arc<WhisperContext>, String> {
@@ -141,8 +143,8 @@ fn cached_context(model_path: &str) -> Result<Arc<WhisperContext>, String> {
 }
 
 /// Load WAV, resample to 16kHz mono f32, run whisper, return segments.
-/// `lang`: a kívánt nyelv ISO kódja (pl. "hu", "en"), vagy None → auto-detektálás
-/// (akkor, ha több nyelv engedélyezett a beállításban).
+/// `lang`: ISO code of the desired language (e.g. "hu", "en"), or None →
+/// auto-detect (used when multiple languages are enabled in settings).
 pub fn transcribe_wav(
     wav_path: &str,
     model_path: &str,
@@ -156,8 +158,8 @@ pub fn transcribe_wav(
         lang.unwrap_or("auto").to_string()
     };
 
-    // Csend-vágás. Ha nincs beszéd, a whisper el sem indul → nincs mit
-    // hallucinálnia, és az eredmény azonnali.
+    // Silence trimming. With no speech, whisper is never started → nothing
+    // to hallucinate, and the result is instant.
     let Some((samples, offset_ms)) = trim_silence(&all_samples) else {
         return Ok(TranscriptResult {
             language: result_language,
@@ -175,15 +177,16 @@ pub fn transcribe_wav(
         patience: -1.0,
     });
     params.set_language(lang); // None → whisper auto-detect
-    // ANGOLRA FORDÍTÁS: a whisper bármilyen beszédet angolra fordít (csak angolra tud).
+    // TRANSLATE TO ENGLISH: whisper translates any speech to English (English only).
     params.set_translate(translate_to_english);
     params.set_print_progress(false);
     params.set_print_realtime(false);
     params.set_print_timestamps(false);
     params.set_suppress_blank(true);
     params.set_suppress_nst(true);
-    // A diktálások függetlenek: az előző puffer szövege NE legyen kontextus —
-    // enélkül a modell hajlamos az előző zárófrázist ("köszönöm") továbbgörgetni.
+    // Dictations are independent: the previous buffer's text must NOT be
+    // context — otherwise the model tends to roll the previous closing
+    // phrase ("köszönöm") forward.
     params.set_no_context(true);
     // Use all physical cores for faster inference.
     let threads = std::thread::available_parallelism()
@@ -214,17 +217,17 @@ pub fn transcribe_wav(
             continue;
         }
 
-        // ── Hallucináció-szűrés ────────────────────────────────────────────
+        // ── Hallucination filtering ────────────────────────────────────────
         let no_speech = seg.no_speech_probability();
-        // (a) szöveg csend-szintű időablakra → biztosan kitalált
+        // (a) text over a silence-level time window → definitely invented
         if !segment_has_speech(samples, start_ms, end_ms) {
             continue;
         }
-        // (b) a whisper maga is csendnek érzi ÉS ismert hallucináció-frázis
+        // (b) whisper itself thinks it is silence AND a known hallucination phrase
         if no_speech > 0.5 && is_hallucination(&text) {
             continue;
         }
-        // (c) nagyon magas no-speech: bármi is a szöveg, nem beszédből jött
+        // (c) very high no-speech: whatever the text is, it did not come from speech
         if no_speech > 0.9 {
             continue;
         }
@@ -234,7 +237,7 @@ pub fn transcribe_wav(
         }
         full_text.push_str(&text);
         segments.push(TranscriptSegment {
-            // A timestampek az EREDETI (vágatlan) felvételre vonatkozzanak.
+            // Timestamps must refer to the ORIGINAL (untrimmed) recording.
             start_ms: start_ms + offset_ms,
             end_ms: end_ms + offset_ms,
             text,
@@ -252,24 +255,24 @@ pub fn transcribe_wav(
 mod tests {
     use super::*;
 
-    /// Beszéd-szerű jel (0,3 amplitúdójú szinusz) — bőven a csend-küszöb fölött.
+    /// Speech-like signal (0.3-amplitude sine) — well above the silence threshold.
     fn speech(n: usize) -> Vec<f32> {
         (0..n).map(|i| 0.3 * (i as f32 * 0.05).sin()).collect()
     }
-    /// Szoba-alapzaj: determinisztikus, nagyon halk jel a küszöb ALATT.
+    /// Room noise floor: deterministic, very quiet signal BELOW the threshold.
     fn quiet(n: usize) -> Vec<f32> {
         (0..n).map(|i| 0.0008 * (i as f32 * 0.31).sin()).collect()
     }
 
     #[test]
-    fn csendes_felvetel_nem_kerul_whisperbe() {
-        // 3 másodperc csak alapzaj → None, tehát a whisper el sem indul.
+    fn silent_recording_never_reaches_whisper() {
+        // 3 seconds of noise floor only → None, so whisper is never started.
         assert!(trim_silence(&quiet(48_000)).is_none());
     }
 
     #[test]
-    fn tul_rovid_kattanas_nem_szamit_beszednek() {
-        // 100 ms "beszéd" csenddel körülvéve — a MIN_SPEECH (300 ms) alatt van.
+    fn too_short_click_does_not_count_as_speech() {
+        // 100 ms of "speech" surrounded by silence — below MIN_SPEECH (300 ms).
         let mut v = quiet(16_000);
         v.extend(speech(1_600));
         v.extend(quiet(16_000));
@@ -277,57 +280,59 @@ mod tests {
     }
 
     #[test]
-    fn valodi_beszed_atmegy_es_az_offset_helyes() {
-        // 1 s csend + 1 s beszéd + 1 s csend
+    fn real_speech_passes_and_offset_is_correct() {
+        // 1 s silence + 1 s speech + 1 s silence
         let mut v = quiet(16_000);
         v.extend(speech(16_000));
         v.extend(quiet(16_000));
-        let (trimmed, offset_ms) = trim_silence(&v).expect("beszédet fel kell ismernie");
-        // A vágás a beszéd elé EDGE_MARGIN-nal (250 ms) kezdődik → ~750 ms.
+        let (trimmed, offset_ms) = trim_silence(&v).expect("must detect speech");
+        // The cut starts EDGE_MARGIN (250 ms) before the speech → ~750 ms.
         assert!(
             (600..=900).contains(&offset_ms),
-            "offset {offset_ms} ms kívül esik a várt tartományon"
+            "offset {offset_ms} ms is outside the expected range"
         );
-        // A vágott rész rövidebb az eredetinél, de a beszédet tartalmazza.
+        // The trimmed part is shorter than the original, but contains the speech.
         assert!(trimmed.len() < v.len());
         assert!(trimmed.len() >= 16_000);
     }
 
     #[test]
-    fn hallucinacio_felismeres_normalizal() {
+    fn hallucination_detection_normalizes() {
+        // Hungarian phrases below are functional data: they must match the
+        // (Hungarian) hallucination blacklist exactly — do not translate.
         assert!(is_hallucination("Köszönöm!"));
         assert!(is_hallucination("  köszönöm szépen  "));
         assert!(is_hallucination("Namaste."));
         assert!(is_hallucination("Thank you."));
-        // Valódi mondat, ami tartalmazza a szót — NEM hallucináció.
+        // Real sentences that contain the word — NOT hallucinations.
         assert!(!is_hallucination("köszönöm hogy elküldted a szerződést"));
         assert!(!is_hallucination("köszönöm a gyors választ"));
         assert!(!is_hallucination("ez egy normális mondat"));
     }
 
     #[test]
-    fn segment_energia_ellenorzes() {
-        // 2 s: [0-1s] beszéd, [1-2s] csend
+    fn segment_energy_check() {
+        // 2 s: [0-1s] speech, [1-2s] silence
         let mut v = speech(16_000);
         v.extend(quiet(16_000));
-        assert!(segment_has_speech(&v, 0, 1000), "az első másodperc beszéd");
-        assert!(!segment_has_speech(&v, 1000, 2000), "a második csend");
-        // Tartomány a felvételen kívül → nincs beszéd (nem panic).
+        assert!(segment_has_speech(&v, 0, 1000), "first second is speech");
+        assert!(!segment_has_speech(&v, 1000, 2000), "second second is silence");
+        // Range outside the recording → no speech (no panic).
         assert!(!segment_has_speech(&v, 5000, 6000));
     }
 
     #[test]
-    fn kimondott_koszonom_megmarad() {
-        // A KRITIKUS eset: a user tényleg azt mondja, hogy "köszönöm".
-        // Az energia-ellenőrzésnek át kell engednie — a (b) szabály csak
-        // magas no-speech mellett szűr, amit valódi beszédnél a whisper nem ad.
+    fn genuinely_spoken_thank_you_is_kept() {
+        // The CRITICAL case: the user really says "köszönöm" (thank you).
+        // The energy check must let it through — rule (b) only filters under
+        // high no-speech, which whisper does not report for real speech.
         let v = speech(16_000);
         assert!(segment_has_speech(&v, 0, 1000));
     }
 }
 
 /// Read WAV via hound, convert to 16kHz mono f32 (what whisper.cpp expects).
-/// pub(crate): a remote.rs sáv-keverése is ezt használja.
+/// pub(crate): the track mixing in remote.rs uses this too.
 pub(crate) fn load_wav_16khz_mono(path: &str) -> Result<Vec<f32>, String> {
     let mut reader = hound::WavReader::open(path).map_err(|e| format!("WAV open failed: {e}"))?;
     let spec = reader.spec();

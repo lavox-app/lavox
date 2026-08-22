@@ -1,8 +1,11 @@
-// Diktálás nézet — felvétel + transzkripció + Obsidian-export.
+// Dictation view — recording + transcription + Obsidian export.
 //
-// Az AI-"polish" folyam (átíró profilok + Prompter) 2026-08-04-én kikerült:
-// félkész volt, és a felhasználó saját OpenRouter-kulcsát igényelte. Az LLM-
-// vezeték megmaradt (lib/llm.ts), mert a meeting-összefoglaló arra épül.
+// The AI "polish" flow (rewrite profiles + Prompter) was removed on 2026-08-04:
+// it was half-finished and required the user's own OpenRouter key. The LLM
+// plumbing stays (lib/llm.ts) because the meeting summary builds on it.
+//
+// NOTE: t() keys are Hungarian source strings (gettext-style, see lib/i18n.ts)
+// — keep them byte-identical; the English UI copy lives in lib/i18n-en.ts.
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Mic, FileDown } from "lucide-react";
@@ -33,7 +36,7 @@ export function DictationView({ modelPath, mics }: Props) {
   const [seconds, setSeconds] = useState(5);
   const [transcript, setTranscript] = useState<TranscriptResult | null>(null);
 
-  // Obsidian-export (M1.4 — a backend export_transcript_to_obsidian parancsa).
+  // Obsidian export (M1.4 — the backend's export_transcript_to_obsidian command).
   const [exporting, setExporting] = useState(false);
   const [exportedPath, setExportedPath] = useState("");
 
@@ -47,7 +50,7 @@ export function DictationView({ modelPath, mics }: Props) {
         createdAt: new Date().toISOString(),
         audioPath: "",
         title: null,
-        vaultDir: null, // alapértelmezés: ~/Documents/Lavox
+        vaultDir: null, // default: ~/Documents/Lavox
       });
       setExportedPath(path);
     } catch (e) {
@@ -57,7 +60,7 @@ export function DictationView({ modelPath, mics }: Props) {
     }
   }
 
-  // Felvétel + transzkripció — a meglévő, működő flow.
+  // Recording + transcription — the existing, working flow.
   async function recordAndTranscribe() {
     if (!modelPath) {
       setStatus(t("Nincs modell — tedd a .bin fájlt a models/ mappába"));

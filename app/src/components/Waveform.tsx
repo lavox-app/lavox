@@ -1,15 +1,15 @@
-// A pill felvétel-szignója: VALÓS IDEJŰ waveform. A sávok magassága a tényleges
-// mikrofon-szintből (RMS, a Rust ~50ms-enként küldi) jön → a vonalak CSAK akkor
-// emelkednek, ha tényleg beszélsz; csendben laposak. Tisztán CSS scaleY-ből,
-// framer-motion-nal (GPU-gyorsított).
+// The pill's recording signature: REAL-TIME waveform. Bar heights come from the
+// actual microphone level (RMS, sent by Rust every ~50ms) → the lines rise ONLY
+// when you actually speak; flat in silence. Pure CSS scaleY with
+// framer-motion (GPU-accelerated).
 import { motion } from "framer-motion";
 
-// Ennyi sáv = ennyi minta gördül át a hullámon (új jobbra, balra kiscrollozik).
+// This many bars = this many samples roll through the wave (new on the right, scrolls out left).
 export const WAVE_BARS = 14;
 
 interface WaveformProps {
-  // 0..1 normalizált szintek sávonként (a legfrissebb a tömb végén). Ha üres
-  // vagy nincs, a sávok laposak (csend).
+  // 0..1 normalized levels per bar (the newest at the end of the array). If empty
+  // or missing, the bars are flat (silence).
   levels?: number[];
 }
 
@@ -20,14 +20,14 @@ export function Waveform({ levels }: WaveformProps) {
     <div className="pill-wave" aria-hidden>
       {data.map((lv, i) => {
         const clamped = Math.min(1, Math.max(0, lv));
-        // 0.10 = lapos alap (csend), 1.0 = teli (hangos beszéd).
+        // 0.10 = flat baseline (silence), 1.0 = full (loud speech).
         const scaleY = 0.1 + clamped * 0.9;
         return (
           <motion.span
             key={i}
             className="pill-wave-bar"
             animate={{ scaleY }}
-            // Rövid, lágy követés → folyamatos, nem ugráló hullám.
+            // Short, soft follow → a continuous, non-jumpy wave.
             transition={{ duration: 0.12, ease: "easeOut" }}
           />
         );
@@ -36,8 +36,8 @@ export function Waveform({ levels }: WaveformProps) {
   );
 }
 
-// Transzkripció: a hullám helyett finom „futó” shimmer-pontok — jelzi, hogy
-// dolgozik, de már nem hangot vesz fel. Három pont, egymás után felizzik.
+// Transcription: instead of the wave, subtle "running" shimmer dots — signals
+// it's working but no longer recording audio. Three dots, glowing in sequence.
 export function Shimmer() {
   return (
     <div className="pill-shimmer" aria-hidden>

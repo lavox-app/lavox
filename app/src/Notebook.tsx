@@ -28,12 +28,14 @@ import {
   Check,
   Pin,
 } from "lucide-react";
+// NOTE: t() keys are Hungarian source strings (gettext-style, see lib/i18n.ts)
+// — keep them byte-identical; the English UI copy lives in lib/i18n-en.ts.
 import { t } from "./lib/i18n";
 import "./Notebook.css";
 
-// Lavox Notes — igazi jegyzetfüzet. Bal: keresés + összes jegyzet. Felül:
-// megnyitott jegyzet-tabok. Jobb: formázó-eszköztár (rich text, contentEditable).
-// A bar KÖZÖS tárolóját (scratchpad.json, Tauri) használja → a diktálás azonnal itt.
+// Lavox Notes — a real notebook. Left: search + all notes. Top:
+// open note tabs. Right: formatting toolbar (rich text, contentEditable).
+// Uses the bar's SHARED store (scratchpad.json, Tauri) → dictation lands here instantly.
 
 interface Note {
   id: string;
@@ -47,7 +49,7 @@ const HTML_RE = /<[a-z][\s\S]*>/i;
 function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
-// Tárolt szöveg → a szerkesztő HTML-je (régi sima szöveg: \n → <br>).
+// Stored text → the editor's HTML (legacy plain text: \n → <br>).
 function toEditorHtml(stored: string): string {
   if (HTML_RE.test(stored)) return stored;
   return escapeHtml(stored).replace(/\n/g, "<br>");
@@ -83,7 +85,7 @@ export default function Notebook() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [wordCount, setWordCount] = useState(0);
-  // Húzható jegyzetlista-szélesség + összecsukhatóság (perzisztens).
+  // Draggable note-list width + collapsibility (persistent).
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     const v = Number(localStorage.getItem("lavox-nb-sidebar-w"));
     return v >= 180 && v <= 460 ? v : 264;
@@ -124,7 +126,7 @@ export default function Notebook() {
     document.body.style.userSelect = "none";
   }
 
-  // Szövegstílus-dropdown (Aa → Normál / H1 / H2 / H3)
+  // Text-style dropdown (Aa → Normal / H1 / H2 / H3)
   const [styleOpen, setStyleOpen] = useState(false);
   const styleRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -138,7 +140,7 @@ export default function Notebook() {
     return () => document.removeEventListener("mousedown", onDown);
   }, [styleOpen]);
 
-  // Üveg-téma (világos / sötét / ultra-átlátszó) — perzisztens, a ⋯ menüből.
+  // Glass theme (light / dark / ultra-transparent) — persistent, from the ⋯ menu.
   const [theme, setTheme] = useState<string>(() => localStorage.getItem("lavox-nb-theme") || "light");
   useEffect(() => {
     localStorage.setItem("lavox-nb-theme", theme);
@@ -169,20 +171,20 @@ export default function Notebook() {
   const notesRef = useRef<Note[]>([]);
   notesRef.current = notes;
 
-  // Az aktív jegyzet tartalmát a szerkesztő MOUNT-ja után töltjük be (a div csak
-  // a re-render után létezik). Csak activeId-ra fut → szerkesztés közben nem ír felül.
+  // Load the active note's content after the editor MOUNTS (the div exists only
+  // after the re-render). Runs only on activeId → doesn't overwrite while editing.
   useEffect(() => {
     if (!editorRef.current) return;
     const n = notesRef.current.find((x) => x.id === activeIdRef.current);
     const html = toEditorHtml(n ? n.text : "");
-    // BLOKK-GARANCIA: üres jegyzet is kapjon egy <div>-et, hogy a formatBlock
-    // (heading/idézet/kód) és a slash-parancsok üres jegyzeten is működjenek.
+    // BLOCK GUARANTEE: even an empty note gets a <div>, so that formatBlock
+    // (heading/quote/code) and the slash commands work on empty notes too.
     editorRef.current.innerHTML = html || "<div><br></div>";
     const t = (editorRef.current.textContent || "").trim();
     editorRef.current.dataset.empty = t ? "false" : "true";
     setWordCount(t ? t.split(/\s+/).length : 0);
-    // Auto-fókusz a kurzort a jegyzet végére → a caret azonnal látszik, nem kell
-    // belekattintani (Notion-minta). A windowot is előtérbe hozza (key).
+    // Auto-focus with the cursor at the end of the note → the caret shows
+    // immediately, no click needed (Notion pattern). Also brings the window forward (key).
     if (activeIdRef.current) {
       window.setTimeout(() => {
         const el = editorRef.current;
@@ -201,7 +203,7 @@ export default function Notebook() {
   const refresh = useCallback(async () => {
     try {
       const list = await invoke<Note[]>("get_notes");
-      // Új (pl. diktált) jegyzet felismerése → automatikus megnyitás tabként.
+      // Detect a new (e.g. dictated) note → open it automatically as a tab.
       const fresh = list.filter((n) => !knownIds.current.has(n.id));
       list.forEach((n) => knownIds.current.add(n.id));
       setNotes(list);
@@ -225,8 +227,8 @@ export default function Notebook() {
     };
   }, [refresh]);
 
-  // Ha az ablak újra aktív lesz (pl. fájlválasztó/másik app után), a szerkesztő
-  // visszakapja a fókuszt → a caret újra villog. Csak ha épp semmi sincs fókuszban.
+  // When the window becomes active again (e.g. after a file picker/another app),
+  // the editor regains focus → the caret blinks again. Only if nothing is focused.
   useEffect(() => {
     const onWinFocus = () => {
       const ae = document.activeElement;
@@ -243,7 +245,7 @@ export default function Notebook() {
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     const list = q ? notes.filter((n) => stripHtml(n.text).toLowerCase().includes(q)) : notes;
-    // Kiemelt (pinned) jegyzetek elöl, utána a többi — mindkét csoport friss-elöl.
+    // Pinned notes first, then the rest — both groups newest-first.
     return [...list].sort((a, b) => {
       if (!!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1;
       return b.updated - a.updated;
@@ -312,10 +314,10 @@ export default function Notebook() {
     if (url) exec("createLink", url);
   }
 
-  // ---- KÉP / FÁJL beszúrás (paste, drag&drop, fájlválasztó) ----
+  // ---- IMAGE / FILE insertion (paste, drag&drop, file picker) ----
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pickImagesOnlyRef = useRef(true);
-  const MAX_ATTACH = 5 * 1024 * 1024; // 5 MB / fájl (mint Wispr)
+  const MAX_ATTACH = 5 * 1024 * 1024; // 5 MB / file (like Wispr)
 
   function escAttr(s: string) {
     return s.replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -342,8 +344,8 @@ export default function Notebook() {
     const url = await fileToDataUrl(file).catch(() => "");
     if (!url) return;
     if (file.type.startsWith("image/")) {
-      // data-filename: hogy megnyitáskor a rendszer appja a helyes kiterjesztéssel
-      // kapja a fájlt (a src maga a data-URL — kattintásra ezt nyitjuk meg).
+      // data-filename: so the system app receives the file with the correct
+      // extension on open (src is the data URL itself — opened on click).
       insertHtmlAtCaret(
         `<img src="${url}" alt="${escAttr(file.name)}" data-filename="${escAttr(file.name)}" class="nb-openable" />`,
       );
@@ -353,18 +355,18 @@ export default function Notebook() {
       );
     }
   }
-  // Kép/fájl megnyitása a rendszer alapértelmezett appjával (data-URL → ideiglenes
-  // fájl → opener). Delegált kattintás-kezelő a szerkesztőn (a tartalom nyers HTML).
+  // Open an image/file with the system default app (data URL → temporary
+  // file → opener). Delegated click handler on the editor (the content is raw HTML).
   function onEditorClick(e: React.MouseEvent) {
     const target = e.target as HTMLElement;
-    // "img" (nem csak .nb-openable) → a régebbi jegyzetekben beszúrt képek is
-    // megnyithatók legyenek, nem csak az ez után beszúrtak.
+    // "img" (not just .nb-openable) → images inserted in older notes should be
+    // openable too, not only ones inserted after this change.
     const img = target.closest("img") as HTMLImageElement | null;
     if (img && img.src) {
       e.preventDefault();
       invoke("open_attachment", {
         dataUrl: img.src,
-        filename: img.dataset.filename || img.alt || "kép.png",
+        filename: img.dataset.filename || img.alt || "image.png",
       }).catch(() => {});
       return;
     }
@@ -373,14 +375,14 @@ export default function Notebook() {
       e.preventDefault();
       invoke("open_attachment", {
         dataUrl: link.getAttribute("href") || "",
-        filename: link.dataset.filename || link.getAttribute("download") || "fájl",
+        filename: link.dataset.filename || link.getAttribute("download") || "file",
       }).catch(() => {});
     }
   }
   function onFilePicked(e: React.ChangeEvent<HTMLInputElement>) {
     const files = e.target.files;
     if (files) for (const f of Array.from(files)) insertFile(f);
-    e.target.value = ""; // ugyanaz a fájl újra választható legyen
+    e.target.value = ""; // allow picking the same file again
   }
   function pickImage() {
     pickImagesOnlyRef.current = true;
@@ -409,7 +411,7 @@ export default function Notebook() {
         }
       }
     }
-    // szöveg-beillesztés → marad az alap viselkedés
+    // text paste → keep the default behavior
   }
   function onEditorDrop(e: React.DragEvent) {
     const files = e.dataTransfer?.files;
@@ -419,7 +421,9 @@ export default function Notebook() {
     }
   }
 
-  // ---- SLASH-PARANCSOK (Notion-stílus): "/" → blokk-típus menü a kurzornál ----
+  // ---- SLASH COMMANDS (Notion-style): "/" → block-type menu at the cursor ----
+  // `keys` are search keywords matched against what the user types after "/" —
+  // they mix accentless Hungarian and English terms; functional data, not UI copy.
   const SLASH_COMMANDS = [
     { keys: "normal szoveg text body", label: t("Normál szöveg"), icon: Type, run: () => exec("formatBlock", "<p>") },
     { keys: "cim h1 heading1 nagy", label: t("Cím (H1)"), icon: Heading1, run: () => exec("formatBlock", "<h1>") },
@@ -443,8 +447,8 @@ export default function Notebook() {
     setSlashQuery("");
     setSlashIdx(0);
   }
-  // A kurzor utáni szöveget vizsgálja: ha "/szó" áll a sor elején vagy szóköz után,
-  // megnyitja a menüt és a "szó" lesz a szűrő.
+  // Inspects the text before the cursor: if "/word" stands at the start of the line
+  // or after a space, opens the menu with "word" as the filter.
   function detectSlash() {
     const sel = window.getSelection();
     if (!sel || sel.rangeCount === 0) return closeSlash();
@@ -471,8 +475,8 @@ export default function Notebook() {
     }
     detectSlash();
   }
-  // A "/szó" törlése + a parancs futtatása. A törlés hosszát a TÉNYLEGES DOM-
-  // szövegből számoljuk (nem a — aszinkron, lemaradható — slashQuery state-ből).
+  // Delete the "/word" + run the command. The deletion length is computed from the
+  // ACTUAL DOM text (not from the async, possibly stale slashQuery state).
   function applySlash(cmd: { run: () => void }) {
     const sel = window.getSelection();
     if (sel && sel.rangeCount > 0) {
@@ -480,7 +484,7 @@ export default function Notebook() {
       const node = range.startContainer;
       if (node.nodeType === Node.TEXT_NODE) {
         const before = (node.textContent || "").slice(0, range.startOffset);
-        const m = before.match(/\/[\p{L}\w]*$/u); // a tényleges "/szó" a kurzornál
+        const m = before.match(/\/[\p{L}\w]*$/u); // the actual "/word" at the cursor
         if (m) {
           try {
             range.setStart(node, range.startOffset - m[0].length);
@@ -513,8 +517,8 @@ export default function Notebook() {
     }
   }
 
-  // Egy adott jegyzet törlése (a bal listából vagy a szerkesztőből). A backend
-  // delete_note → notes-changed event → a lista frissül (a jegyzet eltűnik).
+  // Delete a given note (from the left list or the editor). Backend
+  // delete_note → notes-changed event → the list refreshes (the note disappears).
   function removeNote(id: string) {
     invoke("delete_note", { id })
       .then(() => refresh())
@@ -542,8 +546,8 @@ export default function Notebook() {
       .catch(() => {});
   }
 
-  // Diktálás a KURZORHOZ az aktív jegyzetben (a barból érkező esemény). Ha nincs
-  // aktív jegyzet → új jegyzet a szöveggel.
+  // Dictation goes to the CURSOR in the active note (event from the bar). If there
+  // is no active note → a new note with the text.
   function insertDictation(text: string) {
     const t = (text || "").trim();
     if (!t) return;
@@ -574,7 +578,7 @@ export default function Notebook() {
 
   const tabNotes = openTabs.map((id) => notes.find((n) => n.id === id)).filter(Boolean) as Note[];
 
-  // Heading-szintek (Apple Notes-stílus): Normál + 3 szint.
+  // Heading levels (Apple Notes-style): Normal + 3 levels.
   const headings: { icon: typeof Bold; label: string; run: () => void }[] = [
     { icon: Type, label: t("Normál szöveg"), run: () => exec("formatBlock", "<p>") },
     { icon: Heading1, label: t("Cím (H1)"), run: () => exec("formatBlock", "<h1>") },
@@ -596,7 +600,7 @@ export default function Notebook() {
 
   return (
     <div className="nb-root" data-theme={theme}>
-      {/* Felső sáv: drag-region + jegyzetlista be/ki */}
+      {/* Top strip: drag region + note-list toggle */}
       <div className="nb-titlebar" data-tauri-drag-region>
         <button
           className="nb-collapse"
@@ -610,7 +614,7 @@ export default function Notebook() {
       </div>
 
       <div className="nb-body">
-        {/* BAL: keresés + összes jegyzet (húzható szélesség, összecsukható) */}
+        {/* LEFT: search + all notes (draggable width, collapsible) */}
         {!collapsed && (
           <aside className="nb-sidebar" style={{ width: sidebarWidth }}>
             <button className="nb-newbtn" onClick={newNote}>
@@ -669,14 +673,14 @@ export default function Notebook() {
             </div>
           </aside>
         )}
-        {/* Húzható elválasztó a lista és a szerkesztő közt */}
+        {/* Draggable divider between the list and the editor */}
         {!collapsed && (
           <div className="nb-divider" onMouseDown={onResizeStart} title={t("Húzd az átméretezéshez")} />
         )}
 
-        {/* JOBB OLDALI FŐ RÉSZ */}
+        {/* RIGHT MAIN AREA */}
         <div className="nb-main">
-        {/* FELÜL: megnyitott jegyzet-tabok */}
+        {/* TOP: open note tabs */}
         <div className="nb-tabs">
           {tabNotes.length === 0 ? (
             <div className="nb-tabs-empty">{t("Nyiss meg egy jegyzetet a listából")}</div>
@@ -696,7 +700,7 @@ export default function Notebook() {
           )}
         </div>
 
-        {/* SZERKESZTŐ + JOBB OLDALI FORMÁZÓ-ESZKÖZTÁR */}
+        {/* EDITOR + RIGHT-SIDE FORMATTING TOOLBAR */}
         <div className="nb-editor-wrap">
           {active ? (
             <div className="nb-card">
@@ -729,7 +733,7 @@ export default function Notebook() {
                   style={{ display: "none" }}
                   onChange={onFilePicked}
                 />
-                {/* Slash-parancs menü (Notion-stílus, a kurzornál) */}
+                {/* Slash-command menu (Notion-style, at the cursor) */}
                 {slashOpen && slashItems.length > 0 && (
                   <div className="nb-slash" style={{ top: slashPos.top, left: slashPos.left }}>
                     <div className="nb-slash-head">{t("Blokk beszúrása")}</div>
@@ -750,7 +754,7 @@ export default function Notebook() {
                   </div>
                 )}
                 <div className="nb-toolbar">
-                  {/* Szövegstílus-dropdown (Aa → Normál / H1 / H2 / H3) */}
+                  {/* Text-style dropdown (Aa → Normal / H1 / H2 / H3) */}
                   <div className="nb-style-wrap" ref={styleRef}>
                     <button
                       className={`nb-tool ${styleOpen ? "nb-tool-on" : ""}`}

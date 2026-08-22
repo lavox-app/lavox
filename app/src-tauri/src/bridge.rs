@@ -1,15 +1,15 @@
-// LAVOX Meet Bridge — localhost HTTP listener a Chrome extension jelzéseihez.
-// Az extension a meet.google.com tabról POST-ol ide, amikor a user belép/kilép
-// egy meetingből → az overlay pill azonnal reagál (felvétel-prompt / auto-rec).
+// LAVOX Meet Bridge — localhost HTTP listener for Chrome extension signals.
+// The extension POSTs here from the meet.google.com tab when the user joins/
+// leaves a meeting → the overlay pill reacts instantly (record prompt / auto-rec).
 //
-// Biztonság: CSAK 127.0.0.1-en hallgat, és Origin-allowlistet kényszerít:
-//  - felvétel-végpontok (/lavox/recordings*) → csak az ismert dashboard-originek
-//  - /lavox/meeting → dashboard-originek + chrome-extension:// (a Meet-extension
-//    service workere innen POST-ol)
-//  - ismeretlen browser-Origin → 403, CORS-header nélkül (más nyitott tab JS-e
-//    így nem tudja kiolvasni a meeting-hangfelvételeket)
-//  - Origin nélküli (nem-böngésző) kérés átmegy: lokális process amúgy is eléri
-//    a fájlokat a lemezen, a védendő vektor a böngésző.
+// Security: listens ONLY on 127.0.0.1 and enforces an Origin allowlist:
+//  - recording endpoints (/lavox/recordings*) → only the known dashboard origins
+//  - /lavox/meeting → dashboard origins + chrome-extension:// (the Meet
+//    extension's service worker POSTs from there)
+//  - unknown browser Origin → 403 without CORS headers (so JS in another open
+//    tab cannot read out the meeting audio recordings)
+//  - requests without an Origin (non-browser) pass: a local process can read
+//    the files on disk anyway; the vector to defend against is the browser.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
@@ -17,8 +17,8 @@ use tauri::Emitter;
 
 const PORT: u16 = 5192;
 
-/// Az utolsó bővítmény-esemény ideje (unix ms) és típusa — a Settings ebből
-/// mutatja a felhasználónak, hogy a Meet-bővítmény tényleg beszél-e az appal.
+/// Time (unix ms) and kind of the last extension event — Settings uses this to
+/// show the user whether the Meet extension is actually talking to the app.
 static LAST_EVENT_MS: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
 static LAST_EVENT_KIND: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
 
@@ -29,13 +29,13 @@ fn now_ms() -> i64 {
         .unwrap_or(0)
 }
 
-/// A Settings meeting-kapcsolat panele olvassa: mikor jött utoljára esemény és milyen.
+/// Read by the Settings meeting-connection panel: when the last event arrived and its kind.
 pub fn last_event() -> (i64, String) {
     let kind = LAST_EVENT_KIND.lock().map(|g| g.clone()).unwrap_or_default();
     (LAST_EVENT_MS.load(std::sync::atomic::Ordering::Relaxed), kind)
 }
 
-/// Dashboard-originek, amelyek a felvétel-végpontokat is elérhetik.
+/// Dashboard origins that may also access the recording endpoints.
 const WEB_ORIGINS: &[&str] = &["http://localhost:5190", "http://127.0.0.1:5190"];
 
 fn is_web_origin(origin: &str) -> bool {
@@ -44,22 +44,22 @@ fn is_web_origin(origin: &str) -> bool {
         || (origin.starts_with("https://") && origin.ends_with(".lavox.app"))
 }
 
-/// Az adott Origin elérheti-e az adott útvonalat. `None` = nincs Origin header
-/// (nem böngészőből jön) → engedjük, CORS-header nem kell.
+/// Whether the given Origin may access the given path. `None` = no Origin
+/// header (not from a browser) → allow, no CORS headers needed.
 fn origin_allowed(origin: Option<&str>, path: &str) -> bool {
     let Some(o) = origin else { return true };
     if is_web_origin(o) {
         return true;
     }
-    // Az extension service workere meeting-eseményt és feliratokat küldhet.
+    // The extension's service worker may send meeting events and captions.
     o.starts_with("chrome-extension://") && (path == "/lavox/meeting" || path == "/lavox/captions")
 }
 
-/// A Meet CC feliratok élő puffere — az extension folyamatosan tölti,
-/// a stop_meeting_record üríti és írja a felvétel mappájába (fúzióhoz).
+/// Live buffer of Meet CC captions — the extension fills it continuously,
+/// stop_meeting_record drains it into the recording's folder (for fusion).
 #[derive(serde::Deserialize, serde::Serialize, Clone, Debug)]
 pub struct CaptionEvent {
-    /// Unix epoch ms (az extension órája szerint).
+    /// Unix epoch ms (per the extension's clock).
     pub t: i64,
     #[serde(default, rename = "type")]
     pub kind: String, // "caption" | "active-speaker"
@@ -80,7 +80,7 @@ struct CaptionBatch {
 static CAPTION_BUFFER: std::sync::Mutex<Vec<CaptionEvent>> = std::sync::Mutex::new(Vec::new());
 const CAPTION_BUFFER_CAP: usize = 40_000;
 
-/// A felgyűlt feliratok kivétele (a hívó szűri idő-ablakra).
+/// Takes the accumulated captions (the caller filters them to a time window).
 pub fn drain_captions() -> Vec<CaptionEvent> {
     CAPTION_BUFFER.lock().map(|mut g| std::mem::take(&mut *g)).unwrap_or_default()
 }
@@ -103,16 +103,16 @@ pub fn start(app: tauri::AppHandle) {
         let listener = match TcpListener::bind(("127.0.0.1", PORT)) {
             Ok(l) => l,
             Err(e) => {
-                eprintln!("[bridge] nem sikerült bindolni a {PORT} portra: {e}");
+                eprintln!("[bridge] failed to bind port {PORT}: {e}");
                 return;
             }
         };
-        println!("[bridge] LAVOX meet bridge fut: 127.0.0.1:{PORT}");
+        println!("[bridge] LAVOX meet bridge running on 127.0.0.1:{PORT}");
 
         for stream in listener.incoming() {
             let Ok(stream) = stream else { continue };
             let app = app.clone();
-            // Egy-egy kérés kicsi és ritka — szálanként kezeljük, egyszerűen.
+            // Requests are small and rare — handle each on its own thread, simply.
             std::thread::spawn(move || {
                 let _ = handle(stream, &app);
             });
@@ -124,14 +124,14 @@ fn handle(stream: std::net::TcpStream, app: &tauri::AppHandle) -> std::io::Resul
     stream.set_read_timeout(Some(std::time::Duration::from_secs(5)))?;
     let mut reader = BufReader::new(stream.try_clone()?);
 
-    // Kérő sor: "POST /lavox/meeting HTTP/1.1"
+    // Request line: "POST /lavox/meeting HTTP/1.1"
     let mut request_line = String::new();
     reader.read_line(&mut request_line)?;
     let mut parts = request_line.split_whitespace();
     let method = parts.next().unwrap_or("");
     let path = parts.next().unwrap_or("");
 
-    // Fejlécek: Content-Length + Origin.
+    // Headers: Content-Length + Origin.
     let mut content_length = 0usize;
     let mut origin: Option<String> = None;
     loop {
@@ -152,23 +152,23 @@ fn handle(stream: std::net::TcpStream, app: &tauri::AppHandle) -> std::io::Resul
 
     let mut out = stream;
 
-    // Origin-allowlist: ismeretlen böngésző-origin semmit nem érhet el.
+    // Origin allowlist: an unknown browser origin gets access to nothing.
     if !origin_allowed(origin.as_deref(), path) {
         return respond(&mut out, 403, "forbidden", None);
     }
-    // Innentől az Origin engedélyezett → ezt echózzuk a CORS-headerben.
+    // From here on the Origin is allowed → echo it in the CORS header.
     let cors = origin.as_deref();
 
-    // CORS preflight — a content script / dashboard fetch-e küldi.
+    // CORS preflight — sent by the content script's / dashboard's fetch.
     if method == "OPTIONS" {
         return respond(&mut out, 204, "", cors);
     }
 
-    // ── Felvétel-kiszolgálás a dashboardnak ──────────────────────
-    // GET /lavox/recordings                     → index.json (lista)
-    // GET /lavox/recordings/<id>/mic.wav        → mic sáv
-    // GET /lavox/recordings/<id>/system.wav     → rendszerhang sáv
-    // POST /lavox/recordings/<id>/imported      → importáltnak jelölés
+    // ── Serving recordings to the dashboard ──────────────────────
+    // GET /lavox/recordings                     → index.json (list)
+    // GET /lavox/recordings/<id>/mic.wav        → mic track
+    // GET /lavox/recordings/<id>/system.wav     → system-audio track
+    // POST /lavox/recordings/<id>/imported      → mark as imported
     if method == "GET" && path == "/lavox/recordings" {
         let list = crate::read_meetings_index();
         return respond_json(&mut out, &serde_json::to_string(&list).unwrap_or_else(|_| "[]".into()), cors);
@@ -177,7 +177,7 @@ fn handle(stream: std::net::TcpStream, app: &tauri::AppHandle) -> std::io::Resul
         let mut segs = rest.split('/');
         let id = segs.next().unwrap_or("");
         let file = segs.next().unwrap_or("");
-        // Path-traversal védelem: az id csak a registry-ből jöhet.
+        // Path-traversal protection: the id may only come from the registry.
         let valid = crate::read_meetings_index().into_iter().any(|e| e.id == id);
         if !valid || id.contains("..") || file.contains("..") {
             return respond(&mut out, 404, "not found", cors);
@@ -203,7 +203,7 @@ fn handle(stream: std::net::TcpStream, app: &tauri::AppHandle) -> std::io::Resul
         return respond(&mut out, 404, "not found", cors);
     }
 
-    // ── Meet CC feliratok az extensionből — élő puffer a fúzióhoz ──
+    // ── Meet CC captions from the extension — live buffer for fusion ──
     if method == "POST" && path == "/lavox/captions" {
         let mut body = vec![0u8; content_length.min(262_144)];
         reader.read_exact(&mut body)?;
@@ -227,7 +227,7 @@ fn handle(stream: std::net::TcpStream, app: &tauri::AppHandle) -> std::io::Resul
         return respond(&mut out, 404, "not found", cors);
     }
 
-    // Test (max 64 KB — a participants lista is belefér bőven).
+    // Body (max 64 KB — comfortably fits the participants list too).
     let mut body = vec![0u8; content_length.min(65536)];
     reader.read_exact(&mut body)?;
 
@@ -238,7 +238,7 @@ fn handle(stream: std::net::TcpStream, app: &tauri::AppHandle) -> std::io::Resul
                 "left" => "meet-left",
                 _ => return respond(&mut out, 400, "unknown event", cors),
             };
-            // Kapcsolat-állapot frissítése a Settings-panelhez.
+            // Update connection status for the Settings panel.
             LAST_EVENT_MS.store(now_ms(), std::sync::atomic::Ordering::Relaxed);
             if let Ok(mut g) = LAST_EVENT_KIND.lock() {
                 *g = ev.event.clone();
@@ -257,7 +257,7 @@ fn handle(stream: std::net::TcpStream, app: &tauri::AppHandle) -> std::io::Resul
     }
 }
 
-/// CORS-headerek: csak engedélyezett Origin esetén, azt echózva — wildcard nincs.
+/// CORS headers: only for an allowed Origin, echoing it — no wildcard.
 fn cors_headers(cors: Option<&str>) -> String {
     match cors {
         Some(o) => format!(

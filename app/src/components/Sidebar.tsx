@@ -1,19 +1,20 @@
-// Bal oldali sidebar a fő ablakhoz — a web dashboard Sidebar vizuális stílusa
-// (logó + cím felül, mód-nav-itemek ikonnal + aktív állapot teal háttérrel).
+// Left sidebar for the main window — the visual style of the web dashboard's
+// Sidebar (logo + title on top, mode nav items with icons + active state with teal background).
+// NOTE: t() keys are Hungarian source strings (gettext-style, see lib/i18n.ts).
 import { Settings } from "lucide-react";
 import { MODES, type ModeId } from "../modes";
 import { t } from "../lib/i18n";
 
 interface Props {
-  // az aktív mód, vagy "settings" ha a Beállítások nézet aktív
+  // the active mode, or "settings" when the Settings view is active
   current: ModeId | "settings";
   onSelect: (mode: ModeId | "settings") => void;
-  // a betöltött modell fájlneve (kis felirat alul), ha van
+  // the loaded model's file name (small caption at the bottom), if any
   modelName?: string | null;
 }
 
-// A Lavox márkajel: alászálló sorok (világos→mély zöld) + felszíni pont.
-// Egységes a landinggel és a store-ikonnal.
+// The Lavox brand mark: descending lines (light→deep green) + surface dot.
+// Consistent with the landing page and the store icon.
 function Logo() {
   return (
     <svg
@@ -40,7 +41,7 @@ export function Sidebar({ current, onSelect, modelName }: Props) {
       </div>
       <p className="sidebar-subtitle">Capture → Transcribe → Second Brain</p>
 
-      {/* 4 mód mint nav-item — a típus saját színe a jobb oldali pötty. */}
+      {/* 4 modes as nav items — the type's own color is the dot on the right. */}
       <div className="nav-section-label">{t("Módok")}</div>
       <nav className="sidebar-nav sidebar-nav-main">
         {MODES.map((mode) => {
@@ -58,7 +59,7 @@ export function Sidebar({ current, onSelect, modelName }: Props) {
                 <Icon size={18} strokeWidth={1.75} />
               </span>
               <span>{t(mode.label)}</span>
-              {/* mód-pötty a típus accent-színével */}
+              {/* mode dot in the type's accent color */}
               <span
                 className="nav-mode-dot"
                 style={{ ["--mode-color" as string]: mode.color }}
@@ -68,7 +69,7 @@ export function Sidebar({ current, onSelect, modelName }: Props) {
         })}
       </nav>
 
-      {/* Beállítások + modell-info */}
+      {/* Settings + model info */}
       <div className="sidebar-footer">
         <nav className="sidebar-nav">
           <button

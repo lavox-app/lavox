@@ -18,43 +18,43 @@ use transcribe::TranscriptResult;
 use std::sync::Mutex as StdMutex;
 
 static ACTIVE_RECORDING: StdMutex<Option<recorder::StreamingRecorder>> = StdMutex::new(None);
-// A rendszerhang-rögzítő helper (syscap) futó példánya + a cél WAV útvonala.
-// A meeting-felvétel két sávot rögzít: mikrofon (te) + rendszerhang (a többiek).
+// Running instance of the system-audio recorder helper (syscap) + target WAV path.
+// A meeting recording captures two tracks: microphone (you) + system audio (the others).
 static ACTIVE_SYSCAP: StdMutex<Option<(std::process::Child, String)>> = StdMutex::new(None);
-// Az AKTÍV meeting-felvétel azonosítója (= a tartós könyvtár neve).
+// Id of the ACTIVE meeting recording (= the name of the persistent directory).
 static ACTIVE_MEETING_ID: StdMutex<Option<String>> = StdMutex::new(None);
-// A felvétel fajtája: "meeting" (Meet Bridge / naptár) vagy "video" (kézi, bárból).
+// Kind of recording: "meeting" (Meet Bridge / calendar) or "video" (manual, from the bar).
 static ACTIVE_RECORD_KIND: StdMutex<Option<String>> = StdMutex::new(None);
-// A felvétel indulásának unix ms időbélyege — a Meet CC feliratok (bridge
-// puffer) relatív időhöz igazításához kell a stopnál.
+// Unix ms timestamp of when recording started — needed at stop to align the
+// Meet CC captions (bridge buffer) to relative time.
 static ACTIVE_RECORD_STARTED_MS: StdMutex<Option<i64>> = StdMutex::new(None);
-// A bar mic-választója által kiválasztott mikrofon (None = alapértelmezett).
+// Microphone chosen by the bar's mic picker (None = default).
 static SELECTED_MIC: StdMutex<Option<String>> = StdMutex::new(None);
-// A bar képernyő-választója által kiválasztott kijelző-index (0 = első/fő).
+// Display index chosen by the bar's screen picker (0 = first/main).
 static SELECTED_DISPLAY: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 fn selected_mic() -> Option<String> {
     SELECTED_MIC.lock().ok().and_then(|g| g.clone())
 }
-// KÜLÖN slot a diktálásnak — NEM osztozik a meeting/calendar felvétel-mutexén,
-// így a kettő nem ütközik (ez okozta a „push-to-talk majdnem működik" bugot).
+// SEPARATE slot for dictation — does NOT share the meeting/calendar recording
+// mutex, so the two cannot collide (that caused the "push-to-talk almost works" bug).
 static ACTIVE_DICTATION: StdMutex<Option<recorder::StreamingRecorder>> = StdMutex::new(None);
-// A diktálás INDULÁSAKOR aktív app bundle ID-ja — ide aktiválunk vissza beillesztéskor.
+// Bundle ID of the app active when dictation STARTED — we re-activate it on insertion.
 static DICTATION_TARGET_APP: StdMutex<Option<String>> = StdMutex::new(None);
-// A frontend jelzi, mikor idle a pill (vékony vonal) — csak akkor követi a kurzort.
+// The frontend signals when the pill is idle (thin line) — only then does it follow the cursor.
 static FOLLOW_ENABLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
-// Fut-e épp a stop-poller (megbízható leállás: a Space elengedését pollozzuk).
+// Whether the stop poller is running (reliable stop: we poll for Space being released).
 static STOP_POLLER_ACTIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-// Fut-e a mikrofon-szint emitter (valós idejű waveform — csak felvétel közben).
+// Whether the mic-level emitter is running (real-time waveform — only while recording).
 static MIC_EMIT_ACTIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-// A notch-infó (induláskor detektálva a fő szálon, mert NSScreen main-thread-only).
+// The notch info (detected at startup on the main thread, since NSScreen is main-thread-only).
 static NOTCH_INFO: StdMutex<Option<notch::NotchInfo>> = StdMutex::new(None);
-// Az app-handle a kijelző-átkonfigurálás callbackhez (esemény-vezérelt notch-frissítés).
+// The app handle for the display-reconfiguration callback (event-driven notch refresh).
 static NOTCH_APP_HANDLE: StdMutex<Option<tauri::AppHandle>> = StdMutex::new(None);
 
-/// macOS kijelző-átkonfigurálás (monitor csatlakozik/lecsatlakozik, felbontás/skálázás
-/// vagy elrendezés vált) — esemény-vezérelt, NEM polling. Csak videós kapcsolat
-/// (HDMI/Thunderbolt/built-in) triggereli, Bluetooth NEM.
+/// macOS display reconfiguration (monitor connects/disconnects, resolution/scaling
+/// or layout change) — event-driven, NOT polling. Only video connections
+/// (HDMI/Thunderbolt/built-in) trigger it, Bluetooth does NOT.
 #[cfg(target_os = "macos")]
 mod display_watch {
     use std::os::raw::c_void;
@@ -72,15 +72,15 @@ mod display_watch {
     }
 }
 
-/// A kijelző-átkonfigurálás callbackje (a fő run loopon fut). Újra-detektálja a
-/// notch-ot + szól az overlay-nek → a bar magától korrigál monitor-/felbontás-váltáskor.
+/// The display-reconfiguration callback (runs on the main run loop). Re-detects
+/// the notch + notifies the overlay → the bar self-corrects on monitor/resolution changes.
 #[cfg(target_os = "macos")]
 extern "C" fn on_display_reconfig(
     _display: display_watch::CGDirectDisplayID,
     flags: display_watch::CGDisplayChangeSummaryFlags,
     _user: *mut std::os::raw::c_void,
 ) {
-    // A konfiguráció KEZDETÉT kihagyjuk — a végén (a tényleges flagekkel) detektálunk.
+    // Skip the START of the reconfiguration — detect at the end (with the actual flags).
     if flags == display_watch::K_CG_DISPLAY_BEGIN_CONFIGURATION_FLAG {
         return;
     }
@@ -100,7 +100,7 @@ extern "C" fn on_display_reconfig(
     }
 }
 
-/// A detektált notch-infó (a frontend ehhez igazítja a compact layoutot).
+/// The detected notch info (the frontend aligns the compact layout to it).
 #[tauri::command]
 fn get_notch_info() -> notch::NotchInfo {
     NOTCH_INFO
@@ -110,9 +110,10 @@ fn get_notch_info() -> notch::NotchInfo {
         .unwrap_or_default()
 }
 
-/// Újra-detektálja a notch-ot (FŐ szálon — NSScreen main-thread-only) + frissíti a
-/// NOTCH_INFO-t, és „notch-refreshed" eseménnyel szól az overlay-nek. A frontend
-/// periodikusan hívja → monitor le/felcsatolás után is helyes marad a pozíció.
+/// Re-detects the notch (on the MAIN thread — NSScreen is main-thread-only) +
+/// updates NOTCH_INFO, and notifies the overlay with a "notch-refreshed" event.
+/// The frontend calls it periodically → the position stays correct even after
+/// a monitor is plugged/unplugged.
 #[tauri::command]
 fn refresh_notch(app: tauri::AppHandle) {
     let app2 = app.clone();
@@ -128,15 +129,15 @@ fn refresh_notch(app: tauri::AppHandle) {
     });
 }
 
-// Egy billentyű épp le van-e nyomva (HID hardver-állapot). A global-shortcut Released
-// eseménye chordnál megbízhatatlan, ezért push-to-talk leálláshoz EZT pollozzuk.
+// Whether a key is currently down (HID hardware state). The global-shortcut
+// Released event is unreliable for chords, so for push-to-talk stop we poll THIS.
 #[cfg(target_os = "macos")]
 fn key_is_down(keycode: u16) -> bool {
     #[link(name = "CoreGraphics", kind = "framework")]
     extern "C" {
         fn CGEventSourceKeyState(state_id: i32, key: u16) -> bool;
     }
-    // 1 = kCGEventSourceStateHIDSystemState (valós hardver-állapot)
+    // 1 = kCGEventSourceStateHIDSystemState (real hardware state)
     unsafe { CGEventSourceKeyState(1, keycode) }
 }
 #[cfg(not(target_os = "macos"))]
@@ -144,15 +145,15 @@ fn key_is_down(_keycode: u16) -> bool {
     false
 }
 
-/// A frontend állítja: idle (vékony vonal) → true, bármi más → false.
-/// Csak idle-ben követi a pill a kurzort a képernyők közt.
+/// Set by the frontend: idle (thin line) → true, anything else → false.
+/// Only when idle does the pill follow the cursor across screens.
 #[tauri::command]
 fn set_follow_enabled(enabled: bool) {
     FOLLOW_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
 }
 
-/// Az épp aktív (frontmost) app bundle ID-ja. A SAJÁT appunkat kiszűrjük, hogy
-/// soha ne magunkba illesszünk be (ha a pill épp előtérben lenne).
+/// Bundle ID of the currently active (frontmost) app. We filter OUR OWN app
+/// out so we never paste into ourselves (if the pill happened to be frontmost).
 fn capture_frontmost_app() -> Option<String> {
     let out = std::process::Command::new("osascript")
         .args([
@@ -169,8 +170,9 @@ fn capture_frontmost_app() -> Option<String> {
     }
 }
 
-/// Diktálás felvétel indítása (saját slot). Ha valamiért bent ragadt egy korábbi
-/// felvétel, ELDOBJUK és frissen indítunk → soha nem ragad be „Már fut" hibára.
+/// Starts a dictation recording (its own slot). If a previous recording got
+/// stuck for any reason, we DROP it and start fresh → it can never get stuck
+/// on an "already running" error.
 #[tauri::command]
 fn start_dictation_record(app: tauri::AppHandle) -> Result<String, String> {
     use std::sync::atomic::Ordering;
@@ -178,15 +180,15 @@ fn start_dictation_record(app: tauri::AppHandle) -> Result<String, String> {
     {
         let mut guard = ACTIVE_DICTATION.lock().map_err(|e| e.to_string())?;
         if guard.is_some() {
-            let _ = guard.take(); // a beragadt felvételt eldobjuk
+            let _ = guard.take(); // drop the stuck recording
         }
         let rec = recorder::StreamingRecorder::start(selected_mic())?;
         level_handle = rec.level_handle();
         *guard = Some(rec);
     }
-    // VALÓS IDEJŰ WAVEFORM: ~50ms-enként elküldjük a frontendnek a pillanatnyi
-    // mikrofon-szintet (RMS), hogy a vonalak CSAK akkor emelkedjenek, ha tényleg
-    // beszélsz. Az emitter a felvétel végéig fut (MIC_EMIT_ACTIVE).
+    // REAL-TIME WAVEFORM: every ~50ms we send the frontend the current mic
+    // level (RMS), so the bars rise ONLY when you are actually speaking.
+    // The emitter runs until the recording ends (MIC_EMIT_ACTIVE).
     MIC_EMIT_ACTIVE.store(true, Ordering::SeqCst);
     let app_emit = app.clone();
     std::thread::spawn(move || {
@@ -199,9 +201,9 @@ fn start_dictation_record(app: tauri::AppHandle) -> Result<String, String> {
             std::thread::sleep(std::time::Duration::from_millis(50));
         }
     });
-    // A felvétel már fut — most mentjük el, melyik app volt aktív (ide aktiválunk
-    // vissza beillesztéskor). Csak érvényes (nem-saját) appra frissítünk, hogy egy
-    // átmeneti pill-fókusz ne írja felül a valódi célt.
+    // The recording is already running — now save which app was active (we
+    // re-activate it on insertion). Only update to a valid (non-own) app, so a
+    // transient pill focus cannot overwrite the real target.
     if let Some(front) = capture_frontmost_app() {
         if let Ok(mut t) = DICTATION_TARGET_APP.lock() {
             *t = Some(front);
@@ -210,24 +212,24 @@ fn start_dictation_record(app: tauri::AppHandle) -> Result<String, String> {
     Ok("recording".to_string())
 }
 
-/// Diktálás leállítása + WAV mentése; visszaadja az útvonalat.
+/// Stops dictation + saves the WAV; returns the path.
 #[tauri::command]
 fn stop_dictation_record() -> Result<String, String> {
     MIC_EMIT_ACTIVE.store(false, std::sync::atomic::Ordering::SeqCst);
     let mut guard = ACTIVE_DICTATION.lock().map_err(|e| e.to_string())?;
-    let rec = guard.take().ok_or("Nincs aktív diktálás")?;
+    let rec = guard.take().ok_or("No active dictation")?;
     let path = std::env::temp_dir().join("lavox-dictation.wav");
     rec.stop_and_save(&path.to_string_lossy())?;
     Ok(path.to_string_lossy().to_string())
 }
 
-/// A kész diktátum beküldése a Lavox Memory-ba (lokális szerver, fire-and-forget).
+/// Submits the finished dictation to Lavox Memory (local server, fire-and-forget).
 ///
-/// A meetingek a szerver /api/transcribe útján automatikusan a memóriába
-/// folynak; a diktálás viszont ITT, a Hub whisper.cpp-jén készül — ezért a
-/// kész szöveget külön küldjük be. Best-effort: ha a szerver nem fut vagy
-/// nincs memória-modul, csendben elengedjük (a diktálás fő útját — leírás +
-/// beillesztés — SOHA nem érintheti).
+/// Meetings flow into memory automatically via the server's /api/transcribe;
+/// dictation, however, is produced HERE, on the Hub's whisper.cpp — so the
+/// finished text is submitted separately. Best-effort: if the server is not
+/// running or has no memory module, we let it go silently (it must NEVER
+/// affect dictation's main path — transcription + insertion).
 #[tauri::command]
 async fn memory_ingest_dictation(text: String) -> Result<(), String> {
     if text.trim().len() < 25 {
@@ -273,11 +275,12 @@ async fn clear_calendar_token(
     Ok(())
 }
 
-// ---- GOOGLE NAPTÁR: natív (desktop) bejelentkezés ----
-// A korábbi böngészős GIS-megoldást a Tauri CSP blokkolta csomagolt appban, és
-// refresh token nélkül 1 óra után némán leállt. Lásd gauth.rs.
+// ---- GOOGLE CALENDAR: native (desktop) sign-in ----
+// The old browser-based GIS solution was blocked by the Tauri CSP in the
+// packaged app, and without a refresh token it silently died after 1 hour.
+// See gauth.rs.
 
-/// Bejelentkezés: rendszer-böngésző → loopback redirect → access+refresh token.
+/// Sign-in: system browser → loopback redirect → access+refresh tokens.
 #[tauri::command]
 async fn calendar_login(
     app: tauri::AppHandle,
@@ -297,9 +300,9 @@ async fn calendar_login(
     }))
 }
 
-/// A naptár-kapcsolat állapota a Beállításokhoz. A `configured` azt mondja meg,
-/// hogy a build tartalmaz-e Google desktop-kliens azonosítót — enélkül a
-/// bejelentkezés-gombot nincs értelme megmutatni.
+/// Calendar-connection status for Settings. `configured` says whether the
+/// build contains a Google desktop-client ID — without one there is no point
+/// showing the sign-in button.
 #[tauri::command]
 fn calendar_status() -> serde_json::Value {
     let stored = gauth::load_tokens();
@@ -320,15 +323,16 @@ async fn calendar_logout(
     Ok(())
 }
 
-// ---- AUTO-RECORD BEÁLLÍTÁS (perzisztens; túléli az újratelepítést) ----
+// ---- AUTO-RECORD SETTING (persistent; survives reinstalls) ----
 fn auto_record_file() -> std::path::PathBuf {
     let home = std::env::var("HOME").unwrap_or_default();
     std::path::PathBuf::from(home)
         .join("Library/Application Support/live.plansmart.hangar/auto_record.json")
 }
 
-/// A meeting-bővítmény kapcsolat-állapota a Settings-panelhez: fut-e a bridge
-/// (mindig igen, ha az app él), és mikor jött utoljára a bővítménytől esemény.
+/// The meeting extension's connection status for the Settings panel: whether
+/// the bridge runs (always yes while the app is alive), and when the last
+/// event arrived from the extension.
 #[tauri::command]
 fn get_bridge_status() -> serde_json::Value {
     let (last_ms, kind) = bridge::last_event();
@@ -339,7 +343,7 @@ fn get_bridge_status() -> serde_json::Value {
     })
 }
 
-/// A perzisztált auto-record beállítás (a bar meet-joined döntése is ezt olvassa).
+/// The persisted auto-record setting (the bar's meet-joined decision reads it too).
 #[tauri::command]
 fn get_auto_record() -> bool {
     std::fs::read_to_string(auto_record_file())
@@ -354,18 +358,18 @@ async fn set_auto_record(
     state: tauri::State<'_, calendar::SharedCalendarState>,
     enabled: bool,
 ) -> Result<(), String> {
-    // Perzisztálás fájlba (túléli az újratelepítést, nem csak localStorage).
+    // Persist to a file (survives reinstalls, not just localStorage).
     let path = auto_record_file();
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
     let _ = std::fs::write(&path, enabled.to_string());
-    // Az in-memory calendar-state frissítése (a naptár-poller ezt használja).
+    // Update the in-memory calendar state (used by the calendar poller).
     {
         let mut s = state.lock().await;
         s.auto_record = enabled;
     }
-    // A bar overlay-nek szólunk, hogy frissítse a meet-joined döntéshez a refet.
+    // Notify the bar overlay to refresh its ref for the meet-joined decision.
     use tauri::{Emitter, Manager};
     if let Some(overlay) = app.get_webview_window("overlay") {
         let _ = overlay.emit("auto-record-changed", enabled);
@@ -384,15 +388,15 @@ async fn get_calendar_status(
     }))
 }
 
-/// A syscap rendszerhang-helper feloldása: bundle Resources (normál + `_up_`
-/// gotcha — ld. Lavox Hub Codesign cert jegyzet) és dev-módú útvonal.
+/// Resolves the syscap system-audio helper: bundle Resources (normal + the
+/// `_up_` gotcha — see the Lavox Hub Codesign cert note) and dev-mode paths.
 fn find_syscap() -> Option<std::path::PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let macos_dir = exe.parent()?;
     let candidates = [
         macos_dir.join("../Resources/helpers/syscap"),
         macos_dir.join("../Resources/_up_/helpers/syscap"),
-        // dev-mód: src-tauri/helpers a cwd-hez képest
+        // dev mode: src-tauri/helpers relative to the cwd
         std::path::PathBuf::from("helpers/syscap"),
         std::path::PathBuf::from("src-tauri/helpers/syscap"),
     ];
@@ -409,8 +413,8 @@ fn start_meeting_record() -> Result<String, String> {
     start_capture_with_kind("meeting")
 }
 
-/// Kézi videó-felvétel a bárból — ugyanaz a gépezet (mic + képernyő +
-/// rendszerhang), csak "video" fajtával kerül a registry-be.
+/// Manual video recording from the bar — the same machinery (mic + screen +
+/// system audio), just entered into the registry with kind "video".
 #[tauri::command]
 fn start_video_record() -> Result<String, String> {
     start_capture_with_kind("video")
@@ -419,7 +423,7 @@ fn start_video_record() -> Result<String, String> {
 fn start_capture_with_kind(kind: &str) -> Result<String, String> {
     let mut guard = ACTIVE_RECORDING.lock().map_err(|e| e.to_string())?;
     if guard.is_some() {
-        return Err("Már fut egy rögzítés".to_string());
+        return Err("A recording is already running".to_string());
     }
     let rec = recorder::StreamingRecorder::start(selected_mic())?;
     *guard = Some(rec);
@@ -427,8 +431,9 @@ fn start_capture_with_kind(kind: &str) -> Result<String, String> {
         *kg = Some(kind.to_string());
     }
 
-    // A felvétel könyvtára MÁR INDULÁSKOR a tartós helyen jön létre —
-    // a rendszerhang egyből oda íródik, a stop ugyanide teszi a mic-sávot.
+    // The recording's directory is created at the persistent location ALREADY
+    // AT START — system audio is written straight there, stop puts the mic
+    // track in the same place.
     let rec_id = chrono::Local::now().format("%Y%m%d_%H%M%S").to_string();
     let rec_dir = meetings_dir().join(&rec_id);
     let _ = std::fs::create_dir_all(&rec_dir);
@@ -439,9 +444,9 @@ fn start_capture_with_kind(kind: &str) -> Result<String, String> {
         *sg = Some(chrono::Local::now().timestamp_millis());
     }
 
-    // Rendszerhang-sáv (a meeting TÖBBI résztvevője): syscap helper.
-    // Ha nincs meg a helper vagy nincs engedély, mikrofon-only módban megyünk
-    // tovább — a stop jelzi vissza, mi került mentésre.
+    // System-audio track (the OTHER meeting participants): syscap helper.
+    // If the helper is missing or there is no permission, we carry on in
+    // mic-only mode — stop reports back what got saved.
     let sys_path = rec_dir.join("system.wav");
     let video_path = rec_dir.join("screen.mov");
     let display_idx = SELECTED_DISPLAY.load(std::sync::atomic::Ordering::Relaxed);
@@ -472,11 +477,11 @@ fn start_capture_with_kind(kind: &str) -> Result<String, String> {
     Ok("recording".to_string())
 }
 
-/// A meeting-felvételek tartós könyvtára: ~/Documents/Lavox/meetings.
-/// (Temp helyett — a temp mappát az újraindítás törölheti.)
-/// MIGRÁCIÓ: a korábbi ~/Documents/Hangar mappát első futáskor átnevezzük
-/// Lavox-ra, és a JSON-okban tárolt abszolút utakat is átírjuk — így egyetlen
-/// régi felvétel/jegyzet-export sem vész el.
+/// Persistent directory for meeting recordings: ~/Documents/Lavox/meetings.
+/// (Instead of temp — the temp folder may be wiped by a restart.)
+/// MIGRATION: on first run the old ~/Documents/Hangar folder is renamed to
+/// Lavox, and the absolute paths stored in the JSONs are rewritten too — so
+/// not a single old recording/note export is lost.
 pub(crate) fn meetings_dir() -> std::path::PathBuf {
     let docs = dirs_home().join("Documents");
     let new_root = docs.join("Lavox");
@@ -484,7 +489,7 @@ pub(crate) fn meetings_dir() -> std::path::PathBuf {
     static MIGRATE: std::sync::Once = std::sync::Once::new();
     MIGRATE.call_once(|| {
         if old_root.exists() && !new_root.exists() && std::fs::rename(&old_root, &new_root).is_ok() {
-            // A tárolt abszolút utak átírása minden .json fájlban (index + capture-ök).
+            // Rewrite the stored absolute paths in every .json file (index + captures).
             fn rewrite_json_paths(dir: &std::path::Path) {
                 let Ok(rd) = std::fs::read_dir(dir) else { return };
                 for e in rd.flatten() {
@@ -515,7 +520,7 @@ fn dirs_home() -> std::path::PathBuf {
         .unwrap_or_else(std::env::temp_dir)
 }
 
-/// Egy lezárt meeting-felvétel metaadatai — az index.json bejegyzése.
+/// Metadata of a finished meeting recording — the index.json entry.
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
 pub(crate) struct MeetingRecordEntry {
     pub id: String,
@@ -526,7 +531,7 @@ pub(crate) struct MeetingRecordEntry {
     pub system: Option<String>,
     #[serde(default)]
     pub video: Option<String>,
-    /// "meeting" vagy "video" — a dashboard ez alapján kategorizál.
+    /// "meeting" or "video" — the dashboard categorizes based on this.
     #[serde(default = "default_kind")]
     pub kind: String,
     #[serde(default)]
@@ -561,12 +566,12 @@ fn wav_duration_sec(path: &std::path::Path) -> f64 {
 #[tauri::command]
 fn stop_meeting_record(title: String) -> Result<String, String> {
     let mut guard = ACTIVE_RECORDING.lock().map_err(|e| e.to_string())?;
-    let rec = guard.take().ok_or("Nincs aktív rögzítés")?;
+    let rec = guard.take().ok_or("No active recording")?;
     let safe_title = title
         .chars()
         .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_' || *c == ' ')
         .collect::<String>();
-    // Az indításkor létrehozott tartós könyvtár (fallback: friss ts, ha desync).
+    // The persistent directory created at start (fallback: fresh ts on desync).
     let rec_id = ACTIVE_MEETING_ID
         .lock()
         .ok()
@@ -577,13 +582,13 @@ fn stop_meeting_record(title: String) -> Result<String, String> {
     let mic_path = rec_dir.join("mic.wav");
     rec.stop_and_save(&mic_path.to_string_lossy())?;
 
-    // Rendszerhang-helper leállítása: stdin lezárás (EOF) → graceful finalize,
-    // 3s türelmi idő után kill.
+    // Stopping the system-audio helper: close stdin (EOF) → graceful finalize,
+    // kill after a grace period.
     let mut system_path: Option<String> = None;
     if let Ok(mut sg) = ACTIVE_SYSCAP.lock() {
         if let Some((mut child, sys_path)) = sg.take() {
-            drop(child.stdin.take()); // EOF → a helper lezárja a WAV-ot
-            // Video módban a .mov finalizálása +1.2s — bőven ráhagyunk.
+            drop(child.stdin.take()); // EOF → the helper finalizes the WAV
+            // In video mode finalizing the .mov takes +1.2s — allow plenty.
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(6);
             loop {
                 match child.try_wait() {
@@ -598,18 +603,18 @@ fn stop_meeting_record(title: String) -> Result<String, String> {
                     }
                 }
             }
-            // Csak akkor számít, ha tényleges audio került bele (WAV header > 44 byte).
+            // Only counts if actual audio got into it (WAV header > 44 bytes).
             let ok = std::fs::metadata(&sys_path).map(|m| m.len() > 1000).unwrap_or(false);
             if ok {
                 system_path = Some(sys_path);
             } else {
                 let _ = std::fs::remove_file(&sys_path);
-                dbg("SYSCAP_NO_AUDIO (engedély hiányzik?)");
+                dbg("SYSCAP_NO_AUDIO (missing permission?)");
             }
         }
     }
 
-    // Videó-sáv: csak akkor számít, ha értelmes méretű .mov készült.
+    // Video track: only counts if a .mov of meaningful size was produced.
     let video_file = rec_dir.join("screen.mov");
     let video_path = if std::fs::metadata(&video_file).map(|m| m.len() > 50_000).unwrap_or(false) {
         Some(video_file.to_string_lossy().to_string())
@@ -624,11 +629,11 @@ fn stop_meeting_record(title: String) -> Result<String, String> {
         .and_then(|mut g| g.take())
         .unwrap_or_else(|| "meeting".to_string());
 
-    // Registry-bejegyzés — a dashboard a bridge-en át innen importál.
+    // Registry entry — the dashboard imports from here via the bridge.
     let entry = MeetingRecordEntry {
         id: rec_id.clone(),
         title: if safe_title.trim().is_empty() {
-            format!("{} {rec_id}", if kind == "video" { "Videó" } else { "Meeting" })
+            format!("{} {rec_id}", if kind == "video" { "Video" } else { "Meeting" })
         } else { safe_title },
         created_at: chrono::Local::now().to_rfc3339(),
         duration_sec: wav_duration_sec(&mic_path),
@@ -643,9 +648,9 @@ fn stop_meeting_record(title: String) -> Result<String, String> {
     index.push(entry);
     write_meetings_index(&index);
 
-    // Meet CC feliratok (bridge puffer) → captions.json a felvétel mappájába.
-    // Relatív másodpercre igazítva a felvétel indulásához; a transzkripció-fúzió
-    // (szerver) ebből rendel valódi neveket a whisper-szegmensekhez.
+    // Meet CC captions (bridge buffer) → captions.json into the recording's
+    // folder. Aligned to seconds relative to recording start; the transcription
+    // fusion (server) uses it to assign real names to the whisper segments.
     let started_ms = ACTIVE_RECORD_STARTED_MS
         .lock()
         .ok()
@@ -671,9 +676,9 @@ fn stop_meeting_record(title: String) -> Result<String, String> {
         if !events.is_empty() {
             let payload = serde_json::json!({ "rec_id": rec_id, "started_ms": start_ms, "events": events });
             if let Ok(json) = serde_json::to_string_pretty(&payload) {
-                // A captions.json elvesztése némán rontaná a fúziót (névtelen
-                // szegmensek), ezért az írás-hibát legalább logoljuk — a meeting
-                // maga már mentve van, ezért itt nem bukunk el, csak jelezünk.
+                // Losing captions.json would silently degrade fusion (unnamed
+                // segments), so at least log the write error — the meeting
+                // itself is already saved, so we don't fail here, just signal.
                 if let Err(e) = std::fs::write(rec_dir.join("captions.json"), json) {
                     dbg(&format!("CAPTIONS_WRITE_FAIL: {e}"));
                 }
@@ -681,7 +686,7 @@ fn stop_meeting_record(title: String) -> Result<String, String> {
         }
     }
 
-    // JSON-t adunk vissza — a frontend ebből tudja, mi került mentésre.
+    // We return JSON — the frontend learns from it what got saved.
     Ok(serde_json::json!({
         "mic": mic_path.to_string_lossy(),
         "system": system_path,
@@ -690,7 +695,7 @@ fn stop_meeting_record(title: String) -> Result<String, String> {
     .to_string())
 }
 
-// ---- M5: REMOTE TRANSZKRIPCIÓ + DIARIZÁCIÓ (beszélő-azonosítás) ----
+// ---- M5: REMOTE TRANSCRIPTION + DIARIZATION (speaker identification) ----
 
 #[tauri::command]
 fn get_server_config() -> remote::ServerConfig {
@@ -702,11 +707,10 @@ fn set_server_config(config: remote::ServerConfig) -> Result<(), String> {
     remote::save_config(&config)
 }
 
-/// A webapp onboardingjában megjelenő pároztató kód beváltása. Sikeres
-/// beváltás után a szerver-konfig automatikusan a Lavox-felhőre áll
-/// (url+api_key+workspace mentve) — a frontendnek nem kell külön
-/// set_server_config-ot hívnia, csak a visszakapott configgal frissítenie
-/// a saját state-jét.
+/// Redeems the pairing code shown in the webapp onboarding. After a successful
+/// redemption the server config is automatically set to the Lavox cloud
+/// (url+api_key+workspace saved) — the frontend does not need a separate
+/// set_server_config call, only to update its own state with the returned config.
 #[tauri::command]
 async fn hub_pair_claim(code: String) -> Result<remote::ServerConfig, String> {
     let cfg = remote::pair_claim(&code).await?;
@@ -714,7 +718,7 @@ async fn hub_pair_claim(code: String) -> Result<remote::ServerConfig, String> {
     Ok(cfg)
 }
 
-/// A lezárt felvételek listája (a meetings/index.json tartalma, legfrissebb elöl).
+/// List of finished recordings (contents of meetings/index.json, newest first).
 #[tauri::command]
 fn list_meetings() -> Vec<MeetingRecordEntry> {
     let mut v = read_meetings_index();
@@ -722,7 +726,7 @@ fn list_meetings() -> Vec<MeetingRecordEntry> {
     v
 }
 
-/// Egy felvétel kész átirata (capture.json), ha már transzkribálva lett.
+/// A recording's finished transcript (capture.json), if already transcribed.
 #[tauri::command]
 fn load_capture(rec_id: String) -> Result<Option<CaptureResult>, String> {
     let p = meetings_dir().join(&rec_id).join("capture.json");
@@ -733,7 +737,7 @@ fn load_capture(rec_id: String) -> Result<Option<CaptureResult>, String> {
     serde_json::from_str(&s).map(Some).map_err(|e| e.to_string())
 }
 
-/// A (pl. AI-összefoglalóval bővített) capture visszaírása a felvétel mappájába.
+/// Writes the capture (e.g. enriched with an AI summary) back into the recording's folder.
 #[tauri::command]
 fn save_capture(rec_id: String, capture: CaptureResult) -> Result<(), String> {
     let dir = meetings_dir().join(&rec_id);
@@ -742,10 +746,10 @@ fn save_capture(rec_id: String, capture: CaptureResult) -> Result<(), String> {
     std::fs::write(dir.join("capture.json"), json).map_err(|e| e.to_string())
 }
 
-/// Lezárt meeting-felvétel diarizált transzkripciója: a mic + rendszerhang
-/// sávot egy 16 kHz mono fájlba keverjük, a szerver átírja és beszélőkhöz
-/// rendeli, az eredmény CaptureResult-ként jön vissza (+ capture.json a
-/// felvétel mappájában).
+/// Diarized transcription of a finished meeting recording: the mic + system
+/// tracks are mixed into one 16 kHz mono file, the server transcribes it and
+/// assigns speakers, the result comes back as a CaptureResult (+ capture.json
+/// in the recording's folder).
 #[tauri::command]
 async fn remote_transcribe_meeting(
     rec_id: String,
@@ -757,16 +761,16 @@ async fn remote_transcribe_meeting(
     let entry = read_meetings_index()
         .into_iter()
         .find(|e| e.id == rec_id)
-        .ok_or_else(|| format!("Nincs ilyen felvétel: {rec_id}"))?;
+        .ok_or_else(|| format!("No such recording: {rec_id}"))?;
 
     let rec_dir = meetings_dir().join(&rec_id);
     let mixed_path = rec_dir.join("mixed_16k.wav").to_string_lossy().to_string();
     let mic = entry.mic.clone();
     let system = entry.system.clone();
 
-    // KÉT-SÁVOS mód, ha mindkét sáv megvan: a sávok KÜLÖN mennek fel (16 kHz-re
-    // tömörítve) — az "én vs. ők" szétválasztás determinisztikus marad. A kevert
-    // mixed_16k.wav továbbra is elkészül, de csak a lejátszáshoz.
+    // TWO-TRACK mode when both tracks exist: the tracks are uploaded SEPARATELY
+    // (compressed to 16 kHz) — the "me vs. them" separation stays deterministic.
+    // The mixed mixed_16k.wav is still produced, but only for playback.
     let two_track = mic.is_some() && system.is_some();
     let mic16_path = rec_dir.join("mic_16k.wav").to_string_lossy().to_string();
     let sys16_path = rec_dir.join("system_16k.wav").to_string_lossy().to_string();
@@ -787,20 +791,20 @@ async fn remote_transcribe_meeting(
 
     let cfg = remote::load_config();
     let lang = lang.unwrap_or_else(|| load_langs().first().cloned().unwrap_or_else(|| "en".into()));
-    // Meet CC feliratok (ha a bridge rögzítette) — a szerver fúzióhoz használja.
+    // Meet CC captions (if the bridge captured them) — the server uses them for fusion.
     let captions_file = rec_dir.join("captions.json");
     let captions_path = captions_file
         .exists()
         .then(|| captions_file.to_string_lossy().to_string());
-    // Két-sávos módban a "file" = a többiek sávja, a "mic_file" = a felvevőé.
+    // In two-track mode "file" = the others' track, "mic_file" = the recording user's.
     let (audio_arg, mic_arg) = if two_track {
         (sys16_path.clone(), Some(mic16_path.clone()))
     } else {
         (mixed_path.clone(), None)
     };
 
-    // Naptár-résztvevők mint jelölt-pool a név-következtetéshez. A meghívott ≠
-    // jelenlévő — a szerver csak megerősítő evidenciával oszt ki nevet ebből.
+    // Calendar attendees as the candidate pool for name inference. Invited ≠
+    // present — the server assigns names from this only with confirming evidence.
     let candidate_names: Option<Vec<String>> = {
         let token = cal_state.lock().await.token.as_ref().map(|t| t.access_token.clone());
         if let Some(tok) = token {
@@ -830,9 +834,9 @@ async fn remote_transcribe_meeting(
     )
     .await?;
 
-    // A feltöltési másolatok törlése (a mixed_16k.wav marad a lejátszáshoz),
-    // és a lejátszási hivatkozás a KEVERT fájlra állítása — a media.audio_path
-    // különben a most törölt system_16k.wav-ra mutatna.
+    // Delete the upload copies (mixed_16k.wav stays for playback) and point
+    // the playback reference at the MIXED file — otherwise media.audio_path
+    // would point at the just-deleted system_16k.wav.
     let mut result = result;
     if two_track {
         let _ = std::fs::remove_file(&mic16_path);
@@ -840,29 +844,30 @@ async fn remote_transcribe_meeting(
         result.media.audio_path = mixed_path.clone();
     }
 
-    // A capture.json a KÉSZ átirat egyetlen perzisztens példánya — ha ez az
-    // írás némán elbukik, az UI "átirat kész"-t jelez, de a load_capture később
-    // üresen tér vissza (eltűnt átirat). Ezért az írás-hibát HIBAKÉNT
-    // propagáljuk, hogy a frontend "ÁTIRAT HIBA" értesítést adjon.
+    // capture.json is the ONLY persistent copy of the finished transcript — if
+    // this write fails silently, the UI reports "transcript ready" but
+    // load_capture later returns empty (vanished transcript). So we propagate
+    // the write error AS AN ERROR, letting the frontend show a "TRANSCRIPT
+    // ERROR" notification.
     let json = serde_json::to_string_pretty(&result)
-        .map_err(|e| format!("capture.json szerializálás: {e}"))?;
+        .map_err(|e| format!("capture.json serialization: {e}"))?;
     std::fs::write(rec_dir.join("capture.json"), json)
-        .map_err(|e| format!("capture.json írás sikertelen ({}): {e}", rec_dir.display()))?;
+        .map_err(|e| format!("capture.json write failed ({}): {e}", rec_dir.display()))?;
     Ok(result)
 }
 
-/// Beszélő-enrollment: a `record_mic`-kel felvett (vagy tetszőleges) WAV
-/// mintát névvel a szerverre töltjük. Azonos név → új minta a profilhoz.
+/// Speaker enrollment: uploads a WAV sample recorded with `record_mic` (or any
+/// WAV) to the server with a name. Same name → new sample for the profile.
 #[tauri::command]
 async fn enroll_speaker(wav_path: String, name: String, is_me: bool) -> Result<String, String> {
     let cfg = remote::load_config();
     remote::enroll_speaker(&cfg, &wav_path, &name, is_me).await
 }
 
-/// Beszélő ÁTNEVEZÉSE a kész átiratban + opcionális hangtanulás ("tag-once"
-/// flow, Otter-minta): a klaszter leghosszabb szegmenseit kivágjuk a kevert
-/// hangból, és hangmintaként feltöltjük az új névvel — a következő felvételen
-/// az illető már felirat és átnevezés nélkül is felismerhető.
+/// RENAMES a speaker in the finished transcript + optional voice learning
+/// ("tag-once" flow, Otter-style): the cluster's longest segments are cut from
+/// the mixed audio and uploaded as a voice sample under the new name — on the
+/// next recording the person is recognizable without captions or renaming.
 #[tauri::command]
 async fn rename_speaker(
     rec_id: String,
@@ -872,12 +877,12 @@ async fn rename_speaker(
 ) -> Result<CaptureResult, String> {
     let name = new_name.trim().to_string();
     if name.is_empty() {
-        return Err("Üres név".to_string());
+        return Err("Empty name".to_string());
     }
     let rec_dir = meetings_dir().join(&rec_id);
     let capture_path = rec_dir.join("capture.json");
     let raw = std::fs::read_to_string(&capture_path)
-        .map_err(|e| format!("capture.json olvasás: {e}"))?;
+        .map_err(|e| format!("capture.json read: {e}"))?;
     let mut capture: CaptureResult =
         serde_json::from_str(&raw).map_err(|e| format!("capture.json parse: {e}"))?;
 
@@ -889,16 +894,16 @@ async fn rename_speaker(
         }
     }
     if !found {
-        return Err(format!("Nincs ilyen beszélő: {speaker_id}"));
+        return Err(format!("No such speaker: {speaker_id}"));
     }
     let json = serde_json::to_string_pretty(&capture)
-        .map_err(|e| format!("szerializálás: {e}"))?;
-    std::fs::write(&capture_path, json).map_err(|e| format!("capture.json írás: {e}"))?;
+        .map_err(|e| format!("serialization: {e}"))?;
+    std::fs::write(&capture_path, json).map_err(|e| format!("capture.json write: {e}"))?;
 
-    // Hangtanulás az átnevezett klaszter beszédéből (kikapcsolható).
+    // Voice learning from the renamed cluster's speech (can be disabled).
     if learn.unwrap_or(true) {
         let audio = capture.media.audio_path.clone();
-        // A klaszter szegmensei hossz szerint, a leghosszabbakból max ~30s.
+        // The cluster's segments by length, up to ~30s from the longest ones.
         let mut spans: Vec<(f64, f64)> = capture
             .segments
             .iter()
@@ -916,13 +921,13 @@ async fn rename_speaker(
         match cut {
             Ok(true) => {
                 let cfg = remote::load_config();
-                // A tanulási hiba NEM rontja el az átnevezést — csak logoljuk.
+                // A learning failure does NOT break the rename — just log it.
                 if let Err(e) = remote::enroll_speaker(&cfg, &sample_path, &name, false).await {
                     dbg(&format!("RENAME_HARVEST_FAIL: {e}"));
                 }
                 let _ = std::fs::remove_file(&sample_path);
             }
-            Ok(false) => dbg("RENAME_HARVEST_SKIP: nincs elég beszéd a tanuláshoz"),
+            Ok(false) => dbg("RENAME_HARVEST_SKIP: not enough speech to learn from"),
             Err(e) => dbg(&format!("RENAME_HARVEST_CUT_FAIL: {e}")),
         }
     }
@@ -947,7 +952,7 @@ fn list_mics() -> Result<Vec<String>, String> {
     recorder::list_input_devices()
 }
 
-/// A bar mic-választója: a kiválasztott mikrofon (üres/None → alapértelmezett).
+/// The bar's mic picker: the selected microphone (empty/None → default).
 #[tauri::command]
 fn set_recording_mic(name: Option<String>) {
     if let Ok(mut g) = SELECTED_MIC.lock() {
@@ -955,14 +960,14 @@ fn set_recording_mic(name: Option<String>) {
     }
 }
 
-/// A jelenlegi felvételi mikrofon (None = alapértelmezett).
+/// The current recording microphone (None = default).
 #[tauri::command]
 fn get_recording_mic() -> Option<String> {
     selected_mic()
 }
 
-/// Az elérhető kijelzők — "Kijelző N (SZÉLESSÉG×MAGASSÁG)". Az index a syscap
-/// `--display` argumentumához illik. Szálbiztos (CoreGraphics, nem main-thread).
+/// The available displays — "Display N (WIDTH×HEIGHT)". The index matches the
+/// syscap `--display` argument. Thread-safe (CoreGraphics, not main-thread).
 #[tauri::command]
 fn list_displays() -> Vec<String> {
     #[cfg(target_os = "macos")]
@@ -975,9 +980,9 @@ fn list_displays() -> Vec<String> {
                 .map(|(i, &id)| {
                     let d = CGDisplay::new(id);
                     let b = d.bounds();
-                    let main = if d.is_main() { " — fő" } else { "" };
+                    let main = if d.is_main() { " — main" } else { "" };
                     format!(
-                        "Kijelző {} ({}×{}){}",
+                        "Display {} ({}×{}){}",
                         i + 1,
                         b.size.width as i64,
                         b.size.height as i64,
@@ -985,22 +990,22 @@ fn list_displays() -> Vec<String> {
                     )
                 })
                 .collect(),
-            Err(_) => vec!["Kijelző 1".to_string()],
+            Err(_) => vec!["Display 1".to_string()],
         }
     }
     #[cfg(not(target_os = "macos"))]
     {
-        vec!["Kijelző 1".to_string()]
+        vec!["Display 1".to_string()]
     }
 }
 
-/// A bar képernyő-választója: a rögzítendő kijelző indexe (0 = első).
+/// The bar's screen picker: index of the display to record (0 = first).
 #[tauri::command]
 fn set_recording_display(index: usize) {
     SELECTED_DISPLAY.store(index, std::sync::atomic::Ordering::Relaxed);
 }
 
-/// A jelenlegi felvételi kijelző indexe.
+/// Index of the current recording display.
 #[tauri::command]
 fn get_recording_display() -> usize {
     SELECTED_DISPLAY.load(std::sync::atomic::Ordering::Relaxed)
@@ -1015,7 +1020,7 @@ fn record_mic(seconds: u32) -> Result<String, String> {
     Ok(p)
 }
 
-// ---- NYELV-BEÁLLÍTÁS (engedélyezett nyelvek; perzisztens) ----
+// ---- LANGUAGE SETTING (enabled languages; persistent) ----
 static ENABLED_LANGS: StdMutex<Vec<String>> = StdMutex::new(Vec::new());
 
 fn langs_file() -> std::path::PathBuf {
@@ -1031,7 +1036,7 @@ fn load_langs() -> Vec<String> {
             }
         }
     }
-    vec!["en".to_string()] // alapértelmezés: angol (EN-first termék)
+    vec!["en".to_string()] // default: English (EN-first product)
 }
 fn save_langs(langs: &[String]) {
     let path = langs_file();
@@ -1043,7 +1048,7 @@ fn save_langs(langs: &[String]) {
     }
 }
 
-/// Az engedélyezett nyelvek (ISO kódok, pl. ["hu","en"]).
+/// The enabled languages (ISO codes, e.g. ["hu","en"]).
 #[tauri::command]
 fn get_languages() -> Vec<String> {
     let mut g = ENABLED_LANGS.lock().unwrap();
@@ -1052,7 +1057,7 @@ fn get_languages() -> Vec<String> {
     }
     g.clone()
 }
-/// Az engedélyezett nyelvek beállítása + perzisztálás.
+/// Set the enabled languages + persist them.
 #[tauri::command]
 fn set_languages(langs: Vec<String>) {
     let langs = if langs.is_empty() {
@@ -1066,7 +1071,7 @@ fn set_languages(langs: Vec<String>) {
     }
 }
 
-// ---- HOTKEY-BEÁLLÍTÁS (diktálás-trigger kombó; perzisztens) ----
+// ---- HOTKEY SETTING (dictation-trigger combo; persistent) ----
 use crate::hotkey::HotkeyCombo;
 static HOTKEY_COMBO: StdMutex<Option<HotkeyCombo>> = StdMutex::new(None);
 
@@ -1093,7 +1098,7 @@ fn save_hotkey(combo: &HotkeyCombo) {
     }
 }
 
-/// A jelenlegi diktálás-trigger kombó.
+/// The current dictation-trigger combo.
 #[tauri::command]
 fn get_hotkey() -> HotkeyCombo {
     let mut g = HOTKEY_COMBO.lock().unwrap();
@@ -1103,17 +1108,17 @@ fn get_hotkey() -> HotkeyCombo {
     g.clone().unwrap_or_default()
 }
 
-/// A diktálás-trigger kombó beállítása + perzisztálás + ÉLŐ újrakonfigurálás.
+/// Set the dictation-trigger combo + persist it + LIVE reconfiguration.
 #[tauri::command]
 fn set_hotkey(combo: HotkeyCombo) {
     save_hotkey(&combo);
     if let Ok(mut g) = HOTKEY_COMBO.lock() {
         *g = Some(combo.clone());
     }
-    crate::hotkey::set_active_combo(combo); // a CGEventTap innen olvassa (Task 3-ban él)
+    crate::hotkey::set_active_combo(combo); // the CGEventTap reads it from here (lives in Task 3)
 }
 
-/// A CGEventTap induló betöltése — a persistált kombó (Fn default), parancs-kontextus nélkül.
+/// Initial load for the CGEventTap — the persisted combo (Fn default), without command context.
 pub(crate) fn hotkey_load_for_tap() -> crate::hotkey::HotkeyCombo {
     let mut g = HOTKEY_COMBO.lock().unwrap();
     if g.is_none() {
@@ -1122,7 +1127,7 @@ pub(crate) fn hotkey_load_for_tap() -> crate::hotkey::HotkeyCombo {
     g.clone().unwrap_or_default()
 }
 
-// ---- SCRATCHPAD (gyors jegyzetek; perzisztens) ----
+// ---- SCRATCHPAD (quick notes; persistent) ----
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
 struct Note {
     id: String,
@@ -1161,7 +1166,7 @@ fn save_notes(notes: &[Note]) {
         let _ = std::fs::write(path, s);
     }
 }
-/// A jegyzetek (legújabb elöl).
+/// The notes (newest first).
 #[tauri::command]
 fn get_notes() -> Vec<Note> {
     let mut g = NOTES.lock().unwrap();
@@ -1170,12 +1175,12 @@ fn get_notes() -> Vec<Note> {
     }
     g.clone().unwrap_or_default()
 }
-/// Minden ablaknak jelez, hogy a jegyzetek változtak (a notebook frissít).
+/// Notify every window that the notes changed (the notebook refreshes on it).
 fn emit_notes_changed(app: &tauri::AppHandle) {
     use tauri::Emitter;
     let _ = app.emit("notes-changed", ());
 }
-/// Új jegyzet hozzáadása (a lista elejére). Üres szöveget nem ment.
+/// Add a new note (to the front of the list). Empty text is not saved.
 #[tauri::command]
 fn add_note(app: tauri::AppHandle, text: String) -> Option<Note> {
     let t = text.trim();
@@ -1196,7 +1201,7 @@ fn add_note(app: tauri::AppHandle, text: String) -> Option<Note> {
     emit_notes_changed(&app);
     Some(note)
 }
-/// Meglévő jegyzet szövegének frissítése (a notebook szerkesztőjéből).
+/// Update an existing note's text (from the notebook editor).
 #[tauri::command]
 fn update_note(app: tauri::AppHandle, id: String, text: String) {
     let ts = now_millis();
@@ -1213,7 +1218,7 @@ fn update_note(app: tauri::AppHandle, id: String, text: String) {
     drop(g);
     emit_notes_changed(&app);
 }
-/// Jegyzet kiemelése / kiemelés levétele (pin) — a kiemeltek a lista tetejére.
+/// Pin / unpin a note — pinned notes go to the top of the list.
 #[tauri::command]
 fn set_note_pinned(app: tauri::AppHandle, id: String, pinned: bool) {
     let mut g = NOTES.lock().unwrap();
@@ -1228,7 +1233,7 @@ fn set_note_pinned(app: tauri::AppHandle, id: String, pinned: bool) {
     drop(g);
     emit_notes_changed(&app);
 }
-/// Jegyzet törlése id alapján.
+/// Delete a note by id.
 #[tauri::command]
 fn delete_note(app: tauri::AppHandle, id: String) {
     let mut g = NOTES.lock().unwrap();
@@ -1240,37 +1245,37 @@ fn delete_note(app: tauri::AppHandle, id: String) {
     emit_notes_changed(&app);
 }
 
-/// A notebook (jegyzetfüzet) ablak nyitva van-e.
+/// Whether the notebook window is open.
 static NOTEBOOK_OPEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-/// A notebook a FÓKUSZÁLT ablak-e — EZ dönti el a diktálás-routingot (csak akkor
-/// megy jegyzetbe, ha tényleg a notebookban vagyunk; egyébként a kurzorhoz paste).
+/// Whether the notebook is the FOCUSED window — THIS decides dictation routing (text
+/// goes into a note only when we are really in the notebook; otherwise paste at the cursor).
 static NOTEBOOK_FOCUSED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// A notebook-ablak üveg-témáját állítja (világos / sötét / ultra-átlátszó).
-/// FŐ SZÁLON kell hívni (NSVisualEffectView + appearance). clear → re-apply.
+/// Sets the notebook window's glass theme (light / dark / ultra-transparent).
+/// Must be called on the MAIN THREAD (NSVisualEffectView + appearance). clear → re-apply.
 #[cfg(target_os = "macos")]
 fn apply_notebook_glass(win: &tauri::WebviewWindow, theme: &str) {
     use window_vibrancy::{
         apply_vibrancy, clear_vibrancy, NSVisualEffectMaterial, NSVisualEffectState,
     };
-    // Korábbi vibrancy-réteg eltávolítása, hogy ne ragadjon be a régi anyag.
+    // Remove any previous vibrancy layer so the old material does not get stuck.
     let _ = clear_vibrancy(win);
     let (material, state, appearance) = match theme {
-        // Sötét: a Sidebar-anyag sötét megjelenésben → sötét frosted üveg.
+        // Dark: the Sidebar material in dark appearance → dark frosted glass.
         "dark" => (
             NSVisualEffectMaterial::Sidebar,
             NSVisualEffectState::Active,
             tauri::Theme::Dark,
         ),
-        // Ultra-átlátszó: HudWindow = valóban áttetsző (a háttér átdereng,
-        // sötétítve), fókusz-követő (elkattintáskor világosodik). NEM ad fehér
-        // fátylat, mint a világos ablak-háttér anyagok.
+        // Ultra-transparent: HudWindow = genuinely translucent (the background shows
+        // through, darkened), follows focus (lightens when you click away). Does NOT
+        // add a white veil like the light window-background materials do.
         "ultra" => (
             NSVisualEffectMaterial::HudWindow,
             NSVisualEffectState::FollowsWindowActiveState,
             tauri::Theme::Dark,
         ),
-        // Világos (alapértelmezett): vibráló, frosted, világos.
+        // Light (default): vibrant, frosted, light.
         _ => (
             NSVisualEffectMaterial::Sidebar,
             NSVisualEffectState::Active,
@@ -1281,7 +1286,7 @@ fn apply_notebook_glass(win: &tauri::WebviewWindow, theme: &str) {
     let _ = apply_vibrancy(win, material, Some(state), Some(10.0));
 }
 
-/// A jegyzetfüzet üveg-témájának váltása futásidőben (a ⋯ menüből).
+/// Switch the notebook glass theme at runtime (from the ⋯ menu).
 #[tauri::command]
 fn set_notebook_glass(app: tauri::AppHandle, theme: String) {
     use tauri::Manager;
@@ -1296,9 +1301,9 @@ fn set_notebook_glass(app: tauri::AppHandle, theme: String) {
     }
 }
 
-/// A bar 📝 gombja ezt hívja: megnyitja (vagy előtérbe hozza) a kis
-/// jegyzetfüzet-ablakot (Wispr-stílus). Ugyanazt a scratchpad.json-t használja,
-/// így a bar diktálása azonnal megjelenik benne.
+/// The bar's 📝 button calls this: opens (or brings to front) the small
+/// notebook window (Wispr-style). It uses the same scratchpad.json, so bar
+/// dictation shows up in it immediately.
 #[tauri::command]
 fn show_notebook(app: tauri::AppHandle) {
     use std::sync::atomic::Ordering;
@@ -1321,15 +1326,15 @@ fn show_notebook(app: tauri::AppHandle) {
     .transparent(true)
     .title_bar_style(tauri::TitleBarStyle::Overlay)
     .hidden_title(true)
-    // FONTOS: az OS fájl-dropot a webview kezelje (HTML5 onDrop), ne a Tauri-ablak
-    // nyelje el → a jegyzetbe húzott kép/fájl beszúrása működjön.
+    // IMPORTANT: the webview must handle OS file drops (HTML5 onDrop), not the Tauri
+    // window swallowing them → inserting an image/file dragged into a note keeps working.
     .disable_drag_drop_handler()
     .build();
     if let Ok(win) = built {
         NOTEBOOK_OPEN.store(true, Ordering::SeqCst);
         NOTEBOOK_FOCUSED.store(true, Ordering::SeqCst);
-        // A vibrancy-t NEM itt alkalmazzuk, hanem a frontend hívja a perzisztált
-        // témával (set_notebook_glass) mount-kor → egyetlen réteg, nincs beragadás.
+        // Vibrancy is NOT applied here — the frontend calls it with the persisted
+        // theme (set_notebook_glass) on mount → a single layer, nothing gets stuck.
         let app2 = app.clone();
         win.on_window_event(move |ev| {
             use tauri::Emitter;
@@ -1339,8 +1344,8 @@ fn show_notebook(app: tauri::AppHandle) {
                     NOTEBOOK_FOCUSED.store(false, Ordering::SeqCst);
                     let _ = app2.emit("notebook-closed", ());
                 }
-                // EZ a kulcs a diktálás-routinghoz: ha a notebook elveszti a
-                // fókuszt (másik appba kattintasz), a diktálás ODA megy, nem ide.
+                // THIS is the key to dictation routing: if the notebook loses
+                // focus (you click into another app), dictation goes THERE, not here.
                 tauri::WindowEvent::Focused(focused) => {
                     NOTEBOOK_FOCUSED.store(*focused, Ordering::SeqCst);
                     let _ = app2.emit("notebook-focus", *focused);
@@ -1350,20 +1355,20 @@ fn show_notebook(app: tauri::AppHandle) {
         });
     }
 }
-/// A diktálás-routinghoz: nyitva van-e a notebook.
+/// For dictation routing: whether the notebook is open.
 #[tauri::command]
 fn is_notebook_open() -> bool {
     NOTEBOOK_OPEN.load(std::sync::atomic::Ordering::SeqCst)
 }
-/// A diktálás-routinghoz: a notebook a fókuszált ablak-e.
+/// For dictation routing: whether the notebook is the focused window.
 #[tauri::command]
 fn is_notebook_focused() -> bool {
     NOTEBOOK_FOCUSED.load(std::sync::atomic::Ordering::SeqCst)
 }
 
-/// A kamera-buborék ablak megnyitása a fő kijelző jobb alsó sarkában.
-/// Kör alakú, keret nélküli, mindig-felül webview — a getUserMedia kameráját
-/// mutatja, amit a képernyőfelvétel PiP-ként rögzít (nincs videó-kompozit).
+/// Open the camera-bubble window in the bottom-right corner of the primary display.
+/// A circular, borderless, always-on-top webview — it shows the getUserMedia camera,
+/// which the screen recording captures as PiP (no video compositing).
 #[tauri::command]
 fn show_camera_bubble(app: tauri::AppHandle) {
     use tauri::Manager;
@@ -1393,7 +1398,7 @@ fn show_camera_bubble(app: tauri::AppHandle) {
     }
 }
 
-/// A buborékot a fő (primary) kijelző jobb alsó sarkába teszi, 40 px margóval.
+/// Places the bubble in the bottom-right corner of the primary display, with a 40 px margin.
 fn position_camera_bubble(win: &tauri::WebviewWindow) {
     let monitor = win
         .primary_monitor()
@@ -1413,7 +1418,7 @@ fn position_camera_bubble(win: &tauri::WebviewWindow) {
     }
 }
 
-/// A kamera-buborék ablak bezárása (a kamera-track felszabadul a webview unmountkor).
+/// Close the camera-bubble window (the camera track is released when the webview unmounts).
 #[tauri::command]
 fn hide_camera_bubble(app: tauri::AppHandle) {
     use tauri::Manager;
@@ -1422,23 +1427,23 @@ fn hide_camera_bubble(app: tauri::AppHandle) {
     }
 }
 
-/// A Lavox Notes-ban beszúrt kép/fájl megnyitása: a data-URL-t (`data:<mime>;base64,<...>`)
-/// egy ideiglenes fájlba dekódoljuk, majd a rendszer alapértelmezett appjával nyitjuk
-/// (Előnézet / Finder-alkalmazás / stb.) — az `opener` pluginon keresztül.
+/// Open an image/file inserted into Lavox Notes: decode the data URL
+/// (`data:<mime>;base64,<...>`) into a temporary file, then open it with the system
+/// default app (Preview / Finder app / etc.) — via the `opener` plugin.
 #[tauri::command]
 fn open_attachment(app: tauri::AppHandle, data_url: String, filename: String) -> Result<(), String> {
     use base64::Engine;
-    let comma = data_url.find(',').ok_or("érvénytelen data-URL")?;
+    let comma = data_url.find(',').ok_or("invalid data URL")?;
     let b64 = &data_url[comma + 1..];
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(b64)
         .map_err(|e| e.to_string())?;
     let dir = std::env::temp_dir().join("lavox-notes-attachments");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    // Egyedi alkönyvtár, hogy azonos nevű fájlok ne írják felül egymást.
+    // Unique subdirectory so files with identical names do not overwrite each other.
     let unique_dir = dir.join(format!("{}", now_millis()));
     std::fs::create_dir_all(&unique_dir).map_err(|e| e.to_string())?;
-    let safe_name = if filename.trim().is_empty() { "csatolmány".to_string() } else { filename };
+    let safe_name = if filename.trim().is_empty() { "attachment".to_string() } else { filename };
     let path = unique_dir.join(safe_name);
     std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
     use tauri_plugin_opener::OpenerExt;
@@ -1448,14 +1453,15 @@ fn open_attachment(app: tauri::AppHandle, data_url: String, filename: String) ->
 }
 
 /// Transcribe a WAV file using whisper.cpp. `model_path` = path to GGML model.
-/// Nyelv a beállításból: 1 engedélyezett → azt; több → auto-detect. Ha az
-/// angolra-fordítás be van kapcsolva → a forrást auto-detektáljuk + angolra fordít.
+/// Language from settings: 1 enabled → use it; several → auto-detect. If
+/// translate-to-English is enabled → auto-detect the source + translate to English.
 #[tauri::command]
 fn transcribe_wav(wav_path: String, model_path: String) -> Result<TranscriptResult, String> {
     let langs = get_languages();
-    // NINCS fordítás (a turbo modell nem fordít — külön funkció lesz). A diktálás a
-    // beállított nyelvre RÖGZÍT: 1 nyelv → arra kényszerít (más nyelvet nem fogad el
-    // helyesen); több → auto-detect a beállítottak közül (gyakorlatban en/hu).
+    // NO translation (the turbo model does not translate — that will be a separate
+    // feature). Dictation is PINNED to the configured language: 1 language → force it
+    // (other languages are not transcribed correctly); several → auto-detect among the
+    // configured ones (in practice en/hu).
     let lang: Option<&str> = if langs.len() == 1 {
         Some(langs[0].as_str())
     } else {
@@ -1465,22 +1471,22 @@ fn transcribe_wav(wav_path: String, model_path: String) -> Result<TranscriptResu
     transcribe::transcribe_wav(&wav_path, &model_path, lang, false)
 }
 
-// ---- MODELL-LETÖLTÉS (first-run: whisper GGML modell HuggingFace-ről) ----
-// A termék-default a large-v3-turbo (jó magyar minőség); ~1,6 GB.
+// ---- MODEL DOWNLOAD (first-run: whisper GGML model from HuggingFace) ----
+// The product default is large-v3-turbo (good Hungarian quality); ~1.6 GB.
 const MODEL_URL: &str =
     "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin";
 const MODEL_FILENAME: &str = "ggml-large-v3-turbo.bin";
 
-/// A felhasználói modell-mappa (app-support) — ide tölt a download_model, és a
-/// find_model is keresi. Így a modell NEM az iCloud-szinkronizált repóban él.
+/// The user's model directory (app-support) — download_model writes here, and
+/// find_model searches it too. This keeps the model OUT of the iCloud-synced repo.
 fn models_data_dir() -> std::path::PathBuf {
     let home = std::env::var("HOME").unwrap_or_default();
     std::path::PathBuf::from(home)
         .join("Library/Application Support/live.plansmart.hangar/models")
 }
 
-/// A whisper-modell letöltése (streaming, progress-eseményekkel).
-/// Esemény: "model-download-progress" {downloaded, total, done?}.
+/// Download the whisper model (streaming, with progress events).
+/// Event: "model-download-progress" {downloaded, total, done?}.
 #[tauri::command]
 async fn download_model(app: tauri::AppHandle) -> Result<String, String> {
     use tauri::Emitter;
@@ -1496,9 +1502,9 @@ async fn download_model(app: tauri::AppHandle) -> Result<String, String> {
 
     let mut resp = reqwest::get(MODEL_URL)
         .await
-        .map_err(|e| format!("kapcsolat: {e}"))?;
+        .map_err(|e| format!("connection: {e}"))?;
     if !resp.status().is_success() {
-        return Err(format!("letöltés hiba: HTTP {}", resp.status()));
+        return Err(format!("download error: HTTP {}", resp.status()));
     }
     let total = resp.content_length().unwrap_or(0);
     let mut file = tokio::fs::File::create(&tmp).await.map_err(|e| e.to_string())?;
@@ -1507,7 +1513,7 @@ async fn download_model(app: tauri::AppHandle) -> Result<String, String> {
     while let Some(chunk) = resp
         .chunk()
         .await
-        .map_err(|e| format!("letöltés megszakadt: {e}"))?
+        .map_err(|e| format!("download interrupted: {e}"))?
     {
         file.write_all(&chunk).await.map_err(|e| e.to_string())?;
         downloaded += chunk.len() as u64;
@@ -1530,7 +1536,7 @@ async fn download_model(app: tauri::AppHandle) -> Result<String, String> {
 }
 
 /// Find the first .bin model in the models/ directory.
-/// Checks: app-support (letöltött), project root (dev), next to exe (bundled),
+/// Checks: app-support (downloaded), project root (dev), next to exe (bundled),
 /// and CARGO_MANIFEST_DIR (dev fallback).
 #[tauri::command]
 fn find_model() -> Result<String, String> {
@@ -1554,9 +1560,9 @@ fn find_model() -> Result<String, String> {
             // macOS bundle: exe is in .app/Contents/MacOS/
             if let Some(contents) = dir.parent() {
                 candidates.push(contents.join("Resources").join("models"));
-                // A tauri.conf.json "resources": ["../models/*.bin"] a ".."-t NEM
-                // tudja simán a Resources/ alá tenni, ezért egy "_up_" almappát
-                // hoz létre (Resources/_up_/models/...) — ezt is nézzük.
+                // tauri.conf.json "resources": ["../models/*.bin"] cannot place the
+                // ".." directly under Resources/, so it creates an "_up_" subfolder
+                // (Resources/_up_/models/...) — check that too.
                 candidates.push(contents.join("Resources").join("_up_").join("models"));
             }
         }
@@ -1579,54 +1585,54 @@ fn find_model() -> Result<String, String> {
     }
     match best {
         Some((_, path)) => Ok(path.to_string_lossy().to_string()),
-        None => Err("Nem található GGML modell a models/ mappában".to_string()),
+        None => Err("No GGML model found in the models/ directory".to_string()),
     }
 }
 
-/// M2: az overlay előhívásához használt globális gyorsbillentyű.
+/// M2: the global shortcut used to summon the overlay.
 ///
-/// Alapértelmezés: `CmdOrCtrl+Shift+Space`. A Fn billentyű önmagában NEM köthető
-/// a standard global-shortcut API-val macOS-en (hardveres modifier, a
-/// `tauri-plugin-global-shortcut` nem látja).
-// TODO(M2.1): valódi Fn-key detektálás CGEventTap-pel (natív IOKit/CGEventTap kell).
+/// Default: `CmdOrCtrl+Shift+Space`. The Fn key by itself CANNOT be bound via the
+/// standard global-shortcut API on macOS (hardware modifier,
+/// `tauri-plugin-global-shortcut` does not see it).
+// TODO(M2.1): real Fn-key detection via CGEventTap (needs native IOKit/CGEventTap).
 const OVERLAY_SHORTCUT: &str = "CmdOrCtrl+Shift+Space";
 
-// Az always-on pill kezdő (idle) mérete — pici vonal, hogy ne zavarja a kijelzőt
-// (Wispr-stílus). Minden további méretet a frontend ad meg a `set_pill_size`-zal.
+// The always-on pill's initial (idle) size — a tiny line, so it does not disturb the
+// display (Wispr-style). Every further size comes from the frontend via `set_pill_size`.
 const PILL_LINE_W: f64 = 200.0;
 const PILL_LINE_H: f64 = 24.0;
-// Távolság a képernyő tetejétől. A notch-os MacBookokon a menüsor/notch ~37px
-// magas → a pillt EZ ALÁ kell tenni, különben a bevágásban tűnik el.
+// Distance from the top of the screen. On notched MacBooks the menu bar/notch is
+// ~37px tall → the pill must go BELOW that, or it disappears into the cutout.
 const PILL_TOP_MARGIN: f64 = 26.0;
 
-/// A kurzor alatti monitort adja vissza (multi-monitor). A Tauri `monitor_from_point`
-/// API-ját használjuk, ami BELÜL helyesen kezeli a koordináta-teret — a kézi
-/// bounds-matching mixed-scale multi-monitoron hibás (a monitor-pozíciók
-/// inkonzisztensen skálázottak).
+/// Returns the monitor under the cursor (multi-monitor). We use Tauri's
+/// `monitor_from_point` API, which handles the coordinate space correctly INTERNALLY —
+/// manual bounds-matching is wrong on mixed-scale multi-monitor setups (monitor
+/// positions are scaled inconsistently).
 fn monitor_under_cursor(window: &tauri::WebviewWindow) -> Option<tauri::Monitor> {
     let cursor = window.cursor_position().ok()?;
     window.monitor_from_point(cursor.x, cursor.y).ok().flatten()
 }
 
-/// A pill ablakot a FŐ monitor tetejére, vízszintesen KÖZÉPRE pozicionálja a megadott
-/// (logikai) szélességgel + magassággal. A felső él fix marad, így a tartalom lefelé nő.
+/// Positions the pill window at the top of the PRIMARY monitor, horizontally CENTERED,
+/// with the given (logical) width + height. The top edge stays fixed, so content grows downward.
 ///
-/// MEGJEGYZÉS: a fő (primary) monitort használjuk, mert a Tauri a multi-monitor
-/// koordinátákat mixed-scale setupon INKONZISZTENSEN skálázza (a non-primary monitor
-/// pozíciója a primary scale-jével szorzódik) → a kurzor-monitorra centerelés elcsúszik.
-/// A primary (0,0) monitoron a matek helyes → stabil, középre igazított pill.
-/// A valódi multi-monitor követés natív (NSScreen) kódot igényel — később.
+/// NOTE: we use the primary monitor because Tauri scales multi-monitor coordinates
+/// INCONSISTENTLY on mixed-scale setups (a non-primary monitor's position gets multiplied
+/// by the primary's scale) → centering on the cursor's monitor drifts.
+/// On the primary (0,0) monitor the math is correct → a stable, centered pill.
+/// True multi-monitor tracking needs native (NSScreen) code — later.
 fn position_pill(window: &tauri::WebviewWindow, width_logical: f64, height_logical: f64) {
     let ni = NOTCH_INFO.lock().ok().and_then(|g| g.clone());
-    // IDEIGLENES DEBUG TESZT: kényszerített fallback-pozíció (notch-mód kikapcsolva),
-    // hogy kiderüljön, a notch-sáv (y=0, menüsorral átfedő terület) a hibás-e.
+    // TEMPORARY DEBUG TEST: forced fallback position (notch mode off), to find out
+    // whether the notch strip (y=0, the area overlapping the menu bar) is the culprit.
     if std::env::var("LAVOX_FORCE_FALLBACK_POS").is_ok() {
         dbg("POSITION_PILL forced fallback (debug)");
     } else
-    // NOTCH-MÓD: a notch KÖZEPÉRE igazítunk a friss NSScreen-adatból (NOTCH_INFO),
-    // NEM a Tauri primary_monitor()-ára — az elavul monitor le/felcsatoláskor (a régi
-    // monitor mérete/offsetje beragad → a pill elcsúszik a notch alól). A notch a
-    // primary (built-in) képernyő tetején van, origó (0,0).
+    // NOTCH MODE: align to the CENTER of the notch using fresh NSScreen data (NOTCH_INFO),
+    // NOT Tauri's primary_monitor() — that goes stale when a monitor is attached/detached
+    // (the old monitor's size/offset gets stuck → the pill drifts out from under the
+    // notch). The notch sits at the top of the primary (built-in) screen, origin (0,0).
     if let Some(ni) = ni.as_ref().filter(|n| n.has_notch) {
         let scale = if ni.scale > 0.0 { ni.scale } else { 2.0 };
         let win_w = (width_logical * scale).round() as i32;
@@ -1638,7 +1644,7 @@ fn position_pill(window: &tauri::WebviewWindow, width_logical: f64, height_logic
         dbg(&format!("POSITION_PILL notch x={x} y=0 w={win_w} h={win_h}"));
         return;
     }
-    // FALLBACK (nincs notch): a monitor közepére, a menüsor alá.
+    // FALLBACK (no notch): center of the monitor, below the menu bar.
     let monitor = window
         .primary_monitor()
         .ok()
@@ -1661,8 +1667,8 @@ fn position_pill(window: &tauri::WebviewWindow, width_logical: f64, height_logic
     }
 }
 
-/// Műszerezés: időbélyeges sor a /tmp/lavox-ptt.log-ba (a push-to-talk pipeline
-/// elemzéséhez — keydown/keyup, felvétel, transzkripció, beillesztés latenciája).
+/// Instrumentation: timestamped line into /tmp/lavox-ptt.log (for analyzing the
+/// push-to-talk pipeline — keydown/keyup, recording, transcription, paste latency).
 pub(crate) fn dbg(msg: &str) {
     use std::io::Write;
     if let Ok(mut f) = std::fs::OpenOptions::new()
@@ -1678,14 +1684,15 @@ pub(crate) fn dbg(msg: &str) {
     }
 }
 
-/// A frontend ezzel logol pipeline-lépéseket (start/stop/transzkripció/beillesztés).
+/// The frontend logs pipeline steps with this (start/stop/transcription/paste).
 #[tauri::command]
 fn dbg_log(msg: String) {
     dbg(&msg);
 }
 
-/// M2.2: az átirat beillesztése az aktív app kurzorához (vágólap + Cmd+V). A frontend
-/// hívja, amikor kész a diktálás. Az overlay nem lopja a fókuszt, így a célapp kapja.
+/// M2.2: paste the transcript at the active app's cursor (clipboard + Cmd+V). The
+/// frontend calls this when dictation finishes. The overlay does not steal focus, so
+/// the target app receives the paste.
 #[tauri::command]
 fn insert_text(text: String) -> Result<(), String> {
     let target = DICTATION_TARGET_APP
@@ -1695,10 +1702,10 @@ fn insert_text(text: String) -> Result<(), String> {
     inject::insert_text(&text, target.as_deref())
 }
 
-/// A pill ablak átméretezése a frontend által megadott (logikai) mérethez, a
-/// képernyő tetejéhez igazítva. A frontend ezzel vezérli a pici-vonal ↔ hover ↔
-/// kinyitott állapotokat — így minden további méret-finomítás hot-reload, nincs
-/// több Rust build.
+/// Resize the pill window to the (logical) size given by the frontend, aligned to
+/// the top of the screen. The frontend drives the tiny-line ↔ hover ↔ expanded
+/// states with this — so every further size tweak is hot-reload, no more Rust
+/// builds needed.
 #[tauri::command]
 fn set_pill_size(app: tauri::AppHandle, width: f64, height: f64) {
     use tauri::Manager;
@@ -1711,7 +1718,7 @@ fn set_pill_size(app: tauri::AppHandle, width: f64, height: f64) {
 pub fn run() {
     use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut};
 
-    // CmdOrCtrl+Shift+Space — macOS-en Super (Cmd), máshol Ctrl.
+    // CmdOrCtrl+Shift+Space — Super (Cmd) on macOS, Ctrl elsewhere.
     #[cfg(target_os = "macos")]
     let primary = Modifiers::SUPER;
     #[cfg(not(target_os = "macos"))]
@@ -1729,9 +1736,10 @@ pub fn run() {
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(move |_app, shortcut, event| {
-                    // A diktálás-trigger a hotkey.rs CGEventTap-jén fut (konfigurálható,
-                    // Fn default). Ez a handler MÁR NEM indít diktálást — csak
-                    // diagnosztikai log marad, hogy ne legyen dupla/ütköző trigger.
+                    // The dictation trigger runs on the hotkey.rs CGEventTap
+                    // (configurable, Fn default). This handler NO LONGER starts
+                    // dictation — only a diagnostic log remains, so there is no
+                    // duplicate/conflicting trigger.
                     if shortcut == &overlay_shortcut {
                         dbg(&format!("LEGACY_GS_EVENT state={:?}", event.state));
                     }
@@ -1740,12 +1748,12 @@ pub fn run() {
         )
         .setup(move |app| {
             use tauri::Manager;
-            // PUSH-TO-TALK: a megbízható billentyű-figyelő (CGEventTap) indítása —
-            // ez látja közvetlenül a ⌘⇧Space le/felmenetelét (Discord/Wispr-módszer),
-            // a Global Shortcut megbízhatatlan Released-je helyett. Input Monitoring kell.
+            // PUSH-TO-TALK: start the reliable key listener (CGEventTap) — it sees the
+            // ⌘⇧Space down/up transitions directly (the Discord/Wispr approach), instead
+            // of Global Shortcut's unreliable Released event. Requires Input Monitoring.
             hotkey::start(app.handle().clone());
-            // NOTCH-DETEKTÁLÁS (a fő szálon — NSScreen main-thread-only). A frontend
-            // ehhez igazítja a Dynamic Island-stílusú compact layoutot.
+            // NOTCH DETECTION (on the main thread — NSScreen is main-thread-only). The
+            // frontend fits the Dynamic Island-style compact layout to this.
             let ni = notch::detect();
             dbg(&format!(
                 "NOTCH has={} h={:.0} left={:.0} right={:.0} screenW={:.0} scale={:.1}",
@@ -1754,9 +1762,9 @@ pub fn run() {
             if let Ok(mut g) = NOTCH_INFO.lock() {
                 *g = Some(ni);
             }
-            // ESEMÉNY-VEZÉRELT notch-frissítés: a kijelző-átkonfigurálás (monitor
-            // csatlakozik/lecsatlakozik, felbontás/skálázás vált) callbackjét regisztráljuk
-            // → a bar magától korrigál, NINCS polling.
+            // EVENT-DRIVEN notch refresh: we register the display-reconfiguration
+            // callback (monitor connects/disconnects, resolution/scaling changes)
+            // → the bar corrects itself, NO polling.
             #[cfg(target_os = "macos")]
             {
                 if let Ok(mut g) = NOTCH_APP_HANDLE.lock() {
@@ -1769,9 +1777,9 @@ pub fn run() {
                     );
                 }
             }
-            // ALWAYS-INTERACTIVE OVERLAY (Wispr-réteg): az overlay ablakot
-            // non-activating NSPanel-lé alakítjuk → hover-re kinyílik AKKOR IS, ha
-            // másik app van fókuszban, és nem lopja el a fókuszt. Minden téren látszik.
+            // ALWAYS-INTERACTIVE OVERLAY (Wispr layer): we turn the overlay window into
+            // a non-activating NSPanel → it expands on hover EVEN WHEN another app has
+            // focus, and it does not steal focus. Visible on every space.
             dbg("OVERLAY_SETUP_START");
             let overlay = app.get_webview_window("overlay").expect("FATAL: overlay window not found!");
             dbg("OVERLAY_FOUND");
@@ -1782,29 +1790,29 @@ pub fn run() {
                 dbg("PANEL_CONVERT_TRY");
                 if let Ok(panel) = overlay.to_panel() {
                     dbg("PANEL_CONVERT_OK");
-                    // A menüsor (level 24) FÖLÉ, hogy a pill mindig látszódjon.
+                    // ABOVE the menu bar (level 24), so the pill is always visible.
                     #[allow(non_upper_case_globals)]
                     const NSStatusWindowLevel: i32 = 25;
                     panel.set_level(NSStatusWindowLevel);
-                    // NonActivatingPanel → fogadja az egér-hovert/kattintást anélkül,
-                    // hogy aktiválná az appot (nem lopja el a fókuszt).
+                    // NonActivatingPanel → receives mouse hover/clicks without
+                    // activating the app (does not steal focus).
                     #[allow(non_upper_case_globals)]
                     const NSWindowStyleMaskNonActivatingPanel: i32 = 1 << 7;
                     panel.set_style_mask(NSWindowStyleMaskNonActivatingPanel);
-                    // Minden space-en + fullscreen app fölött is látszik.
+                    // Visible on every space + above fullscreen apps too.
                     panel.set_collection_behaviour(
                         NSWindowCollectionBehavior::NSWindowCollectionBehaviorCanJoinAllSpaces
                             | NSWindowCollectionBehavior::NSWindowCollectionBehaviorFullScreenAuxiliary,
                     );
-                    // KULCS: az NSPanel alapból ELREJTŐZIK, ha az app háttérbe kerül
-                    // → ki kell kapcsolni, hogy a pill MINDIG látszódjon (mint a Wispr).
+                    // KEY: an NSPanel HIDES by default when the app goes to the background
+                    // → must be turned off so the pill is ALWAYS visible (like Wispr).
                     panel.set_hides_on_deactivate(false);
-                    // Hover-események akkor is, ha másik app van fókuszban.
+                    // Hover events even when another app has focus.
                     panel.set_accepts_mouse_moved_events(true);
-                    // Ne ragadja meg a billentyű-fókuszt, csak ha tényleg kell.
+                    // Do not grab keyboard focus unless it is actually needed.
                     panel.set_becomes_key_only_if_needed(true);
-                    // NINCS ablak-árnyék → eltűnik a csúnya téglalap-„keret" a
-                    // glass körül (az NSPanel alapból vet egy ablak-árnyékot).
+                    // NO window shadow → removes the ugly rectangular "frame" around
+                    // the glass (an NSPanel casts a window shadow by default).
                     panel.set_has_shadow(false);
                     panel.show();
                     dbg(&format!("PANEL_VISIBLE={}", panel.is_visible()));
@@ -1813,19 +1821,19 @@ pub fn run() {
                 }
             }
             position_pill(&overlay, PILL_LINE_W, PILL_LINE_H);
-            // M4: Calendar poller indítása háttérben.
+            // M4: start the calendar poller in the background.
             calendar::start_polling(app.handle().clone(), cal_state.clone());
-            // Felhő-párosítás: heartbeat-loop indítása háttérben. Csendben
-            // kihagyja magát, amíg nincs eszköz-token (self-hosted mód).
+            // Cloud pairing: start the heartbeat loop in the background. It silently
+            // skips itself while there is no device token (self-hosted mode).
             remote::start_heartbeat_loop();
-            // LAVOX Meet Bridge: a Chrome extension jelzi ide (127.0.0.1:5192),
-            // amikor a user belép/kilép egy Google Meet-be → pill felvétel-prompt.
+            // LAVOX Meet Bridge: the Chrome extension signals here (127.0.0.1:5192)
+            // when the user joins/leaves a Google Meet → pill recording prompt.
             bridge::start(app.handle().clone());
 
-            // HOVER FÓKUSZ NÉLKÜL (Wispr-élmény): a WKWebView háttérben nem kapja a
-            // DOM hover-eseményeket, ezért NATÍVAN pollozzuk a globális kurzor-pozíciót
-            // az overlay ablak keretéhez képest. Be-/kilépéskor "pill-hover" eseményt
-            // küldünk → a frontend kinyit/csuk, akkor is, ha másik app van fókuszban.
+            // HOVER WITHOUT FOCUS (Wispr experience): a backgrounded WKWebView does not
+            // receive DOM hover events, so we NATIVELY poll the global cursor position
+            // against the overlay window's frame. On enter/leave we emit a "pill-hover"
+            // event → the frontend expands/collapses even when another app has focus.
             let hover_handle = app.handle().clone();
             std::thread::spawn(move || {
                 use tauri::{Emitter, Manager};

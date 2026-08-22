@@ -1,12 +1,12 @@
 """
-Speaker diarization + enrollment — sherpa-onnx (ONNX runtime, PyTorch-mentes).
+Speaker diarization + enrollment — sherpa-onnx (ONNX runtime, PyTorch-free).
 
-Motor: pyannote segmentation-3.0 (ONNX) + NeMo TitaNet-large speaker embedding.
-Benchmark (2026-07-08, 100s HU teszt, 3 beszélő): 98,1% frame-pontosság,
-490 MB csúcs-RAM, RTF 0,08 — részletek a STATUS.md-ben.
+Engine: pyannote segmentation-3.0 (ONNX) + NeMo TitaNet-large speaker embedding.
+Benchmark (2026-07-08, 100s HU test, 3 speakers): 98.1% frame accuracy,
+490 MB peak RAM, RTF 0.08 — details in STATUS.md.
 
-Multi-tenant: az enrollment-profilok workspace-enként külön könyvtárban élnek
-(SPEAKER_DB_DIR/<workspace_id>/), egyik workspace sem lát rá a másikéra.
+Multi-tenant: the enrollment profiles live in a separate directory per
+workspace (SPEAKER_DB_DIR/<workspace_id>/); no workspace can see another's.
 """
 
 import json
@@ -23,11 +23,11 @@ SEG_MODEL = os.path.join(MODELS_DIR, "sherpa-onnx-pyannote-segmentation-3-0", "m
 EMBED_MODEL = os.path.join(MODELS_DIR, "nemo_en_titanet_large.onnx")
 SPEAKER_DB_DIR = os.environ.get("SPEAKER_DB_DIR", os.path.join(os.path.dirname(__file__), "data", "speakers"))
 
-# Enrollment-találat küszöb. Mérés: valós találat 0,92+, legrosszabb hamis 0,54.
+# Enrollment match threshold. Measurement: real match 0.92+, worst false 0.54.
 SIM_THRESHOLD = float(os.environ.get("DIARIZE_SIM_THRESHOLD", "0.60"))
-# Klaszterezési küszöb (num_speakers ismeretlen esetén).
+# Clustering threshold (when num_speakers is unknown).
 CLUSTER_THRESHOLD = float(os.environ.get("DIARIZE_CLUSTER_THRESHOLD", "0.5"))
-# Ennél rövidebb szegmens embeddingje megbízhatatlan → temporal smoothing.
+# The embedding of segments shorter than this is unreliable → temporal smoothing.
 MIN_CONFIDENT_SEC = 1.0
 
 SAMPLE_RATE = 16000
@@ -40,13 +40,13 @@ def models_available() -> bool:
 
 
 class Diarizer:
-    """sherpa-onnx diarizáció + embedding-kinyerés, process-szinten egyszer betöltve."""
+    """sherpa-onnx diarization + embedding extraction, loaded once per process."""
 
     def __init__(self, num_threads: int = 2):
         if not models_available():
             raise RuntimeError(
-                f"Diarizációs modellek hiányoznak: {SEG_MODEL} / {EMBED_MODEL} — "
-                "lásd server/download_models.sh"
+                f"Diarization models are missing: {SEG_MODEL} / {EMBED_MODEL} — "
+                "see server/download_models.sh"
             )
         self._lock = threading.Lock()
         self._num_threads = num_threads
@@ -55,8 +55,9 @@ class Diarizer:
         )
 
     def _make_sd(self, num_clusters: int) -> sherpa_onnx.OfflineSpeakerDiarization:
-        # A klaszterszám a configban rögzül, ezért kérésenként példányosítunk;
-        # a modell-fájlokat az ONNX runtime OS-cache-ből olvassa, ez olcsó.
+        # The cluster count is fixed in the config, so we instantiate per
+        # request; the ONNX runtime reads the model files from the OS cache,
+        # which is cheap.
         return sherpa_onnx.OfflineSpeakerDiarization(
             sherpa_onnx.OfflineSpeakerDiarizationConfig(
                 segmentation=sherpa_onnx.OfflineSpeakerSegmentationModelConfig(
@@ -76,7 +77,7 @@ class Diarizer:
         )
 
     def diarize(self, samples: np.ndarray, num_speakers: int = -1) -> list[dict]:
-        """16 kHz mono float32 → [{start, end, cluster}] idő szerint rendezve."""
+        """16 kHz mono float32 → [{start, end, cluster}] sorted by time."""
         with self._lock:
             sd = self._make_sd(num_speakers)
             result = sd.process(samples).sort_by_start_time()
@@ -93,18 +94,18 @@ class Diarizer:
 
 
 # ---------------------------------------------------------------------------
-# Enrollment-tár (workspace-enként elkülönítve)
+# Enrollment store (isolated per workspace)
 # ---------------------------------------------------------------------------
 
 def _ws_dir(workspace: str) -> str:
     if not _WS_RE.match(workspace):
-        raise ValueError("Érvénytelen workspace azonosító (A-Za-z0-9_- , max 64).")
+        raise ValueError("Invalid workspace identifier (A-Za-z0-9_- , max 64).")
     return os.path.join(SPEAKER_DB_DIR, workspace)
 
 
 def _profile_path(workspace: str, speaker_id: str) -> str:
     if not _WS_RE.match(speaker_id):
-        raise ValueError("Érvénytelen speaker azonosító.")
+        raise ValueError("Invalid speaker identifier.")
     return os.path.join(_ws_dir(workspace), f"{speaker_id}.json")
 
 
@@ -121,7 +122,7 @@ def load_profiles(workspace: str) -> list[dict]:
 
 
 def save_speaker(workspace: str, name: str, is_me: bool, embedding: np.ndarray) -> dict:
-    """Új profil, vagy azonos név esetén új minta hozzáfűzése a meglévőhöz."""
+    """New profile, or for an existing name, append a new sample to it."""
     d = _ws_dir(workspace)
     os.makedirs(d, exist_ok=True)
     for p in load_profiles(workspace):
@@ -162,13 +163,14 @@ def _normed(v: np.ndarray) -> np.ndarray:
 
 
 def profile_similarity(profile: dict, cluster_emb: np.ndarray) -> float:
-    """Klaszter↔profil hasonlóság CSATORNA-TUDATOSAN.
+    """Cluster↔profile similarity, CHANNEL-AWARE.
 
-    A centroid-only match veszít, ha a profil mintái más csatornáról származnak,
-    mint a mérendő hang (enrollment = nyers mikrofon, meeting = Meet/Zoom-codec
-    a rendszerhang-sávon). Ezért a centroid mellett a LEGJOBB EGYEDI mintát is
-    nézzük: ha a profilban van a jelenlegi csatornához illő minta, az eltalál,
-    míg a centroid a csatornák átlagába mosódna.
+    A centroid-only match loses when the profile's samples come from a
+    different channel than the audio being measured (enrollment = raw
+    microphone, meeting = Meet/Zoom codec on the system-audio track). So
+    besides the centroid we also check the BEST INDIVIDUAL sample: if the
+    profile contains a sample matching the current channel, it hits, while
+    the centroid would blur into the average of the channels.
     """
     embs = profile.get("embeddings") or []
     if not embs:
@@ -182,17 +184,17 @@ def profile_similarity(profile: dict, cluster_emb: np.ndarray) -> float:
 
 
 # ---------------------------------------------------------------------------
-# Diarizálás + azonosítás + szegmens-hozzárendelés
+# Diarization + identification + segment assignment
 # ---------------------------------------------------------------------------
 
 def _overlap(a_start: float, a_end: float, b_start: float, b_end: float) -> float:
     return max(0.0, min(a_end, b_end) - max(a_start, b_start))
 
 
-# Harvest (automatikus hangtanulás) korlátai.
-HARVEST_MIN_SEC = float(os.environ.get("DIARIZE_HARVEST_MIN_SEC", "8"))  # ennyi beszéd kell egy profilhoz
-HARVEST_MAX_EMB = int(os.environ.get("DIARIZE_HARVEST_MAX_EMB", "10"))   # profilonként max minta (FIFO)
-HARVEST_POISON_SIM = float(os.environ.get("DIARIZE_HARVEST_POISON_SIM", "0.45"))  # mérgezés-védelem
+# Limits of harvest (automatic voice learning).
+HARVEST_MIN_SEC = float(os.environ.get("DIARIZE_HARVEST_MIN_SEC", "8"))  # this much speech is needed for a profile
+HARVEST_MAX_EMB = int(os.environ.get("DIARIZE_HARVEST_MAX_EMB", "10"))   # max samples per profile (FIFO)
+HARVEST_POISON_SIM = float(os.environ.get("DIARIZE_HARVEST_POISON_SIM", "0.45"))  # poisoning defense
 
 
 def harvest_profile(
@@ -203,32 +205,34 @@ def harvest_profile(
     name: str,
     is_me: bool = False,
 ) -> dict | None:
-    """Hangprofil TANULÁSA egy már megnevezett beszélő beszédéből.
+    """LEARNING a voice profile from the speech of an already-named speaker.
 
-    Ez az "Otter-flow" motorja: ha egy klaszter bárhonnan nevet kapott (Meet CC,
-    hivatalos résztvevő-lista, kézi átnevezés), a hangját eltároljuk — a
-    következő meetingen már felismerjük, CC és minden más nélkül.
+    This is the engine of the "Otter flow": if a cluster received a name from
+    anywhere (Meet CC, official participant list, manual rename), we store
+    its voice — at the next meeting we already recognize it, without CC or
+    anything else.
 
-    Védelmek:
-      - csak elég hosszú, összefüggő beszédből tanul (HARVEST_MIN_SEC),
-      - MÉRGEZÉS-VÉDELEM: ha a névhez már van profil, az új minta csak akkor
-        kerül be, ha érdemben hasonlít rá (különben egy téves névhozzárendelés
-        tartósan elrontaná a profilt),
-      - profilonként korlátozott mintaszám (a leghosszabbak maradnak).
+    Protections:
+      - only learns from sufficiently long, contiguous speech (HARVEST_MIN_SEC),
+      - POISONING DEFENSE: if the name already has a profile, the new sample
+        is only added if it substantially resembles it (otherwise a wrong
+        name assignment would permanently ruin the profile),
+      - bounded sample count per profile (the longest ones stay).
     """
     usable = [(s, e) for s, e in spans if e - s >= 1.0]
     total = sum(e - s for s, e in usable)
     if total < HARVEST_MIN_SEC:
         return None
-    # A leghosszabb részletekből mintát veszünk (max ~30s), és DARABONKÉNT
-    # embeddelünk: az ONNX embedding-modell fix méretű bemenetet vár, a hosszú
-    # összefűzött minta broadcast-hibát dob. A darab-embeddingek időtartam-
-    # súlyozott, normált átlaga megy a profilba (mint a klaszter-centroidnál).
+    # We sample from the longest stretches (max ~30s) and embed PIECE BY
+    # PIECE: the ONNX embedding model expects a fixed-size input, a long
+    # concatenated sample throws a broadcast error. The duration-weighted,
+    # normalized average of the piece embeddings goes into the profile (as
+    # with the cluster centroid).
     usable.sort(key=lambda p: -(p[1] - p[0]))
     embs: list[tuple[np.ndarray, float]] = []
     acc = 0.0
     for s, e in usable:
-        # 2-15 mp-es darabokra vágva embeddelünk.
+        # Embed in pieces of 2-15 seconds.
         pos = s
         while pos < e and acc < 30.0:
             end = min(pos + 15.0, e)
@@ -238,7 +242,7 @@ def harvest_profile(
                     embs.append((diarizer.embed(seg), end - pos))
                     acc += end - pos
                 except Exception:
-                    pass  # egy hibás darab nem viheti el a teljes tanulást
+                    pass  # one faulty piece must not sink the whole learning
             pos = end
         if acc >= 30.0:
             break
@@ -255,9 +259,9 @@ def harvest_profile(
     )
     if existing is not None:
         if profile_similarity(existing, emb) < HARVEST_POISON_SIM:
-            return None  # nem erre a hangra illik — valószínűleg téves név
+            return None  # does not fit this voice — probably a wrong name
         if len(existing.get("embeddings") or []) >= HARVEST_MAX_EMB:
-            return None  # a profil már elég erős
+            return None  # the profile is already strong enough
     return save_speaker(workspace, name, is_me, emb)
 
 
@@ -268,12 +272,12 @@ def harvest_me_profile(
     workspace: str,
     name: str,
 ) -> dict | None:
-    """A FELVEVŐ profiljának automatikus építése a mic-sávból.
+    """Automatically build the RECORDER's profile from the mic track.
 
-    A mic.wav definíció szerint kizárólag a felhasználó hangja, ezért ez a
-    legtisztább lehetséges tanítóanyag — és ugyanabból a csatornából jön, mint
-    a későbbi felvételek. Ezzel a 20 másodperces felolvasós enrollment
-    (SpeakersPanel) opcionálissá válik.
+    mic.wav is by definition exclusively the user's voice, so it is the
+    cleanest possible training material — and it comes from the same channel
+    as later recordings. This makes the 20-second read-aloud enrollment
+    (SpeakersPanel) optional.
     """
     if not name.strip():
         return None
@@ -288,9 +292,10 @@ def _rms(x: np.ndarray) -> float:
     return float(np.sqrt(np.mean(a * a)))
 
 
-# A mic-sávra átszűrődő hangszóró-hang (bleed) küszöbe: a mic-szegmens csak
-# akkor számít VALÓDI saját beszédnek, ha energiája ennyiszerese a system-sáv
-# azonos ablakának. Fülhallgatóval a bleed ~0, hangszóróval jelentős.
+# Threshold for speaker audio bleeding into the mic track: a mic segment only
+# counts as GENUINE own speech if its energy is this many times that of the
+# same window of the system track. With headphones the bleed is ~0, with
+# loudspeakers it is significant.
 BLEED_RATIO = float(os.environ.get("DIARIZE_BLEED_RATIO", "1.5"))
 
 
@@ -303,21 +308,22 @@ def merge_two_track(
     workspace: str,
     num_speakers: int = -1,
 ) -> tuple[list[dict], list[dict], dict]:
-    """KÉT-SÁVOS feldolgozás — a rendszer legerősebb, platform-független jele.
+    """TWO-TRACK processing — the system's strongest, platform-independent signal.
 
-    A felvétel két külön sávon készül: `mic` = KIZÁRÓLAG a felvevő hangja,
-    `system` = KIZÁRÓLAG a többiek. Ha ezeket összekeverjük egy fájlba (ahogy a
-    régi mix_tracks tette), ez a determinisztikus tudás elvész, és a
-    diarizációnak találgatnia kell. Itt megtartjuk:
+    The recording is made on two separate tracks: `mic` = EXCLUSIVELY the
+    recorder's voice, `system` = EXCLUSIVELY the others. If these are mixed
+    into one file (as the old mix_tracks did), this deterministic knowledge
+    is lost and the diarization has to guess. Here we keep it:
 
-      - a system-sáv MAGÁBAN diarizálódik (eggyel kevesebb beszélő, tisztább
-        klaszterek) → a meglévő enrollment-azonosítás fut rá,
-      - a mic-sáv minden szegmense a felvevőé (`is_me` profil neve, ha van),
-      - a hangszóró-áthallás (bleed) energia-aránnyal kiszűrve.
+      - the system track is diarized ON ITS OWN (one fewer speaker, cleaner
+        clusters) → the existing enrollment identification runs on it,
+      - every segment of the mic track belongs to the recorder (the `is_me`
+        profile's name, if any),
+      - loudspeaker bleed is filtered out by energy ratio.
 
-    Vissza: (összefésült szegmensek, speakers lista, statisztika).
+    Returns: (merged segments, speakers list, statistics).
     """
-    # 1) A többiek sávja: teljes diarizáció + enrollment-azonosítás.
+    # 1) The others' track: full diarization + enrollment identification.
     if system_segments and system_samples.size > 0:
         sys_segs, speakers = diarize_and_identify(
             diarizer, system_samples, system_segments, workspace, num_speakers
@@ -325,24 +331,26 @@ def merge_two_track(
     else:
         sys_segs, speakers = [], []
 
-    # 2) A felvevő neve: az is_me profil, ha van; különben semleges "ME".
+    # 2) The recorder's name: the is_me profile, if any; otherwise a neutral "ME".
     me_profile = next((p for p in load_profiles(workspace) if p.get("is_me")), None)
     me_id = me_profile["id"] if me_profile else "ME"
+    # "Te" = Hungarian for "You". Kept: user-visible fallback speaker label of
+    # the Hungarian-language product UI, stored in transcripts.
     me_label = me_profile["name"] if me_profile else "Te"
 
-    # 3) Bleed-szűrés: a mic-szegmens csak akkor a felvevőé, ha energiája
-    #    érdemben meghaladja a system-sáv azonos ablakát.
+    # 3) Bleed filtering: a mic segment belongs to the recorder only if its
+    #    energy substantially exceeds the same window of the system track.
     kept, dropped = [], 0
     for s in mic_segments:
         i0, i1 = int(s["start"] * SAMPLE_RATE), int(s["end"] * SAMPLE_RATE)
         r_mic = _rms(mic_samples[i0:i1]) if mic_samples.size else 0.0
         r_sys = _rms(system_samples[i0:i1]) if system_samples.size else 0.0
         if r_sys > 0 and r_mic < BLEED_RATIO * r_sys:
-            dropped += 1  # hangszóró-áthallás, nem saját beszéd
+            dropped += 1  # loudspeaker bleed, not own speech
             continue
         kept.append({"start": s["start"], "end": s["end"], "text": s["text"], "speaker": me_id})
 
-    # 4) Összefésülés idő szerint.
+    # 4) Merge by time.
     merged = sorted(sys_segs + kept, key=lambda x: x["start"])
     if kept and not any(sp["id"] == me_id for sp in speakers):
         speakers = [{"id": me_id, "label": me_label, "is_me": True}] + speakers
@@ -363,9 +371,9 @@ def diarize_and_identify(
     workspace: str,
     num_speakers: int = -1,
 ) -> tuple[list[dict], list[dict]]:
-    """Fő pipeline. whisper_segments: [{start, end, text}] (másodperc).
+    """Main pipeline. whisper_segments: [{start, end, text}] (seconds).
 
-    Vissza: (segments speaker-mezővel, speakers lista {id, label, is_me}).
+    Returns: (segments with a speaker field, speakers list {id, label, is_me}).
     """
     turns = diarizer.diarize(samples, num_speakers)
     if not turns:
@@ -374,7 +382,7 @@ def diarize_and_identify(
             [{"id": "SPEAKER_00", "label": "Speaker 1", "is_me": False}],
         )
 
-    # Klaszter-centroidok a turnök embeddingjeiből (időtartammal súlyozva).
+    # Cluster centroids from the turns' embeddings (weighted by duration).
     cluster_embs: dict[int, list[tuple[np.ndarray, float]]] = {}
     for t in turns:
         dur = t["end"] - t["start"]
@@ -389,15 +397,16 @@ def diarize_and_identify(
         norm = np.linalg.norm(m)
         centroids[c] = m / norm if norm > 0 else m
 
-    # Azonosítás enrollment-profilok ellen (cosine; a vektorok normáltak).
+    # Identification against enrollment profiles (cosine; the vectors are normalized).
     profiles = load_profiles(workspace)
     cluster_speaker: dict[int, dict] = {}
     unknown_counter = 0
     total_dur: dict[int, float] = {}
     for t in turns:
         total_dur[t["cluster"]] = total_dur.get(t["cluster"], 0.0) + (t["end"] - t["start"])
-    # Egy profil csak EGY klaszterhez rendelhető (a leghosszabb beszédidejű
-    # klaszter kapja meg) — különben ugyanaz a név több klaszterre is ráülhet.
+    # A profile may be assigned to only ONE cluster (the cluster with the
+    # longest speaking time gets it) — otherwise the same name could settle
+    # onto multiple clusters.
     claimed: set[str] = set()
     for c in sorted(centroids, key=lambda c: -total_dur.get(c, 0.0)):
         best_p, best_sim = None, SIM_THRESHOLD
@@ -424,7 +433,7 @@ def diarize_and_identify(
                 "similarity": None,
             }
             unknown_counter += 1
-    # Turnök klasztere embedding nélkül (túl rövid): legyen belőle is speaker.
+    # Turn clusters without an embedding (too short): make a speaker of them too.
     for t in turns:
         if t["cluster"] not in cluster_speaker:
             cluster_speaker[t["cluster"]] = {
@@ -435,7 +444,7 @@ def diarize_and_identify(
             }
             unknown_counter += 1
 
-    # Whisper-szegmens → beszélő: legnagyobb időbeli átfedésű klaszter.
+    # Whisper segment → speaker: the cluster with the largest temporal overlap.
     out_segments = []
     for s in whisper_segments:
         best_c, best_ov = None, 0.0
@@ -444,23 +453,24 @@ def diarize_and_identify(
             if ov > best_ov:
                 best_c, best_ov = t["cluster"], ov
         if best_c is None:
-            # nincs átfedés (pl. VAD-eltérés) → legközelebbi turn
+            # no overlap (e.g. VAD mismatch) → nearest turn
             best_c = min(
                 turns,
                 key=lambda t: min(abs(t["start"] - s["end"]), abs(s["start"] - t["end"])),
             )["cluster"]
         dur = s["end"] - s["start"]
         confident = dur >= MIN_CONFIDENT_SEC and best_ov >= dur * 0.5
-        # Rövid, de enrollment-tal egyértelműen azonosított klaszter maradhat.
+        # A short cluster unambiguously identified via enrollment may stay.
         if not confident and cluster_speaker[best_c]["similarity"] is not None and dur >= MIN_CONFIDENT_SEC:
             confident = True
-        # Mini-klaszter (<2s össz-beszédidő) enrollment-találat nélkül: tipikusan
-        # egy rövid közbeszólás megbízhatatlan embeddingje → smoothing alá esik.
+        # Mini cluster (<2s total speaking time) without an enrollment match:
+        # typically the unreliable embedding of a short interjection → falls
+        # under smoothing.
         if cluster_speaker[best_c]["similarity"] is None and total_dur.get(best_c, 0.0) < 2.0:
             confident = False
         out_segments.append(dict(s, _cluster=best_c, _confident=confident))
 
-    # Temporal smoothing: rövid/bizonytalan szegmens → szomszédos domináns beszélő.
+    # Temporal smoothing: short/uncertain segment → neighbouring dominant speaker.
     for i, s in enumerate(out_segments):
         if s["_confident"]:
             continue
@@ -472,7 +482,7 @@ def diarize_and_identify(
             if prev_c["_cluster"] == next_c["_cluster"]:
                 s["_cluster"] = prev_c["_cluster"]
             else:
-                # a domináns (több össz-beszédidejű) szomszéd nyer
+                # the dominant neighbour (more total speaking time) wins
                 s["_cluster"] = max(
                     (prev_c["_cluster"], next_c["_cluster"]),
                     key=lambda c: total_dur.get(c, 0.0),
@@ -480,7 +490,7 @@ def diarize_and_identify(
         else:
             s["_cluster"] = (prev_c or next_c)["_cluster"]
 
-    # Kimenet összeállítása; csak a ténylegesen használt beszélők kerülnek a listába.
+    # Assemble the output; only speakers actually used end up in the list.
     used = []
     final_segments = []
     for s in out_segments:

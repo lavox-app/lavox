@@ -1,13 +1,13 @@
-// Always-on pill (a képernyő tetején, Wispr Flow-elmélet, saját animáció).
-// Az ablak ÁTLÁTSZÓ; a méretét a frontend állítja: invoke("set_pill_size",{width,height}),
-// a Rust a képernyő tetejére, középre igazítja.
+// Always-on pill (top of the screen, Wispr Flow concept, custom animation).
+// The window is TRANSPARENT; the frontend sets its size: invoke("set_pill_size",{width,height}),
+// Rust aligns it to the top-center of the screen.
 //
-// Három fő állapot:
-//   1) IDLE = pici, alig látható sötét vonal középen felül (nem zavar).
-//   2) HOVER = a vonalra húzva smooth kibomlik a vezérlősáv (mód-menü + felirat + mic).
-//   3) DIKTÁLÁS = látványos „figyel" visszajelzés (waveform + piros pont + glow),
-//      hover nélkül is — a ⌃⇧Space (trigger-dictation) eseményre is aktiválódik.
-//   + Transzkripció: shimmer + „Átirat…". Kész: lefelé kinő, mutatja az átiratot.
+// Three main states:
+//   1) IDLE = tiny, barely visible dark line at the top center (unobtrusive).
+//   2) HOVER = hovering the line smoothly unfolds the control bar (mode menu + label + mic).
+//   3) DICTATION = prominent "listening" feedback (waveform + red dot + glow),
+//      even without hover — also activated by the ⌃⇧Space (trigger-dictation) event.
+//   + Transcription: shimmer + "Transcribing…". Done: grows downward, shows the transcript.
 import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, emit } from "@tauri-apps/api/event";
@@ -18,15 +18,17 @@ import { BarContent, BarPanel, type BarContentProps, type BarPanelKind } from ".
 import { WAVE_BARS } from "./components/Waveform";
 import { DEFAULT_MODE, type ModeId } from "./modes";
 import { loadAutoRecord } from "./lib/calendar";
+// NOTE: t() keys are Hungarian source strings (gettext-style, see lib/i18n.ts)
+// — keep them byte-identical; the English UI copy lives in lib/i18n-en.ts.
 import { t } from "./lib/i18n";
 import type { TranscriptResult } from "./lib/types";
 import "./Overlay.css";
 
-// A Meet Bridge (extension → Rust → ide) esemény-payloadja.
+// Event payload of the Meet Bridge (extension → Rust → here).
 type MeetInfo = { meetCode: string; title: string; participants: string[] };
 
-/** Lavox márkajel — alászálló sorok + felszíni pont. A zárt pill és a notch brand-pöttye.
- *  Egységes a landinggel, a sidebar-ral és a store-ikonnal. */
+/** Lavox brand mark — descending lines + surface dot. The brand dot of the closed pill and the notch.
+ *  Consistent with the landing page, the sidebar and the store icon. */
 function LavoxMark({ size = 14 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 120 120" fill="none" aria-hidden>
@@ -40,7 +42,7 @@ function LavoxMark({ size = 14 }: { size?: number }) {
 
 type Phase = "ready" | "recording" | "transcribing" | "done" | "error";
 
-// A Rust `get_notch_info` által visszaadott notch-adatok (logikai pont = CSS px).
+// Notch data returned by Rust `get_notch_info` (logical points = CSS px).
 interface NotchInfo {
   has_notch: boolean;
   notch_height: number;
@@ -50,29 +52,30 @@ interface NotchInfo {
   scale: number;
 }
 
-// A notch két oldali sávja (CSS px) — szűk, csak a dropdownnak hagy helyet.
+// The strip on each side of the notch (CSS px) — narrow, leaves room only for the dropdown.
 const NOTCH_SIDE_W = 78;
 
-// Választható nyelvek (whisper ISO kódok). Több engedélyezett → auto-detect.
+// Selectable languages (whisper ISO codes). Multiple enabled → auto-detect.
 const LANGUAGES = [
   { code: "en", label: "English" },
   { code: "hu", label: "Hungarian (Magyar)" },
 ];
 
-// ── Animáció-paraméterek (egy helyen hangolva) ──────────────────────────────
-// Lágyabb, „selymes" springek a méret/alak morphhoz: alacsonyabb stiffness +
-// magasabb damping → nem ugrik, nem pattog, folyékonyan átúszik (Wispr-érzet).
-// A layout-morph (pici vonal ↔ sáv ↔ kinyílás) saját, kicsit lágyabb springje.
+// ── Animation parameters (tuned in one place) ───────────────────────────────
+// Softer, "silky" springs for the size/shape morph: lower stiffness +
+// higher damping → no jumping, no bouncing, glides fluidly (Wispr feel).
+// The layout morph (tiny line ↔ bar ↔ expansion) has its own, slightly softer spring.
 export const LAYOUT_SPRING = { type: "spring" as const, stiffness: 230, damping: 26, mass: 0.9 };
-// A kinyíló átirat-panel kicsit ruganyosabb (érezhető „kinő" mozdulat).
+// The expanding transcript panel is a bit springier (a palpable "growing out" move).
 const PANEL_SPRING = { type: "spring" as const, stiffness: 240, damping: 28, mass: 0.95 };
-// A középső tartalom (wave/shimmer/label) gyors, sima cross-fade-je.
+// Fast, smooth cross-fade of the center content (wave/shimmer/label).
 const CONTENT_FADE = { duration: 0.14, ease: [0.22, 0.61, 0.36, 1] as const };
 
-// Az egyes állapotok logikai ablakmérete (a set_pill_size ezzel hív).
-// A window NAGYOBB, mint a látható pill — a körüllévő árnyék/glow, és a lefelé
-// nyíló menü ELFÉR benne (különben a window széle levágja őket). A pill a window
-// tetejétől kicsit lejjebb, középen ül (lásd .pill margin-top + .pill-wrap).
+// Logical window size for each state (set_pill_size is called with this).
+// The window is LARGER than the visible pill — the surrounding shadow/glow and
+// the downward-opening menu FIT inside it (otherwise the window edge would clip
+// them). The pill sits slightly below the window top, centered (see .pill
+// margin-top + .pill-wrap).
 const SIZES = {
   idle: { width: 200, height: 30 },
   hover: { width: 360, height: 82 },
@@ -80,45 +83,45 @@ const SIZES = {
   transcribing: { width: 360, height: 82 },
   done: { width: 380, height: 240 },
   menu: { width: 400, height: 330 },
-  // Meeting REC kapszula: hover nélkül is látható piros pill + timer.
+  // Meeting REC capsule: red pill + timer visible even without hover.
   meetrec: { width: 210, height: 56 },
 } as const;
 
-// 220ms türelmi idő, mielőtt a vezérlősáv visszacsukódik a vonalra.
-// (Korábban 400ms — túl „ragadós" volt; ennyi elég, hogy ne csukódjon be
-// véletlen kilépéskor, de snappy maradjon az interakció.)
+// 220ms grace period before the control bar collapses back to the line.
+// (Was 400ms — too "sticky"; this is enough to avoid closing on an
+// accidental mouse-out while keeping the interaction snappy.)
 const LEAVE_DELAY_MS = 220;
 
 function Overlay() {
   const reduceMotion = useReducedMotion();
   const [mode, setMode] = useState<ModeId>(DEFAULT_MODE);
   const [phase, setPhase] = useState<Phase>("ready");
-  // A státusz-szöveget a setStatus állítja (hiba/állapot); a bar most gombokat mutat,
-  // ezért a getter jelenleg nem jelenik meg (a hiba a data-phase glow-val látszik).
+  // The status text is set by setStatus (error/state); the bar now shows buttons,
+  // so the getter is currently not rendered (errors show via the data-phase glow).
   const [_status, setStatus] = useState("");
   const [transcript, setTranscript] = useState<TranscriptResult | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [hovered, setHovered] = useState(false);
-  // Valós idejű mikrofon-szintek a waveformhoz (gördülő puffer, új a végén).
+  // Real-time microphone levels for the waveform (rolling buffer, newest at the end).
   const [levels, setLevels] = useState<number[]>(() => new Array(WAVE_BARS).fill(0));
-  // Megnyitott al-panel (nyelv / eszköz-választók) — a Wispr-gombokhoz.
+  // Open sub-panel (language / device pickers) — for the Wispr buttons.
   const [panel, setPanel] = useState<BarPanelKind | null>(null);
-  // Videó-vezérlő menü (a 🎥 gomb nyitja; a bar footprintje nem változik).
+  // Video control menu (opened by the 🎥 button; the bar footprint does not change).
   const [videoMenu, setVideoMenu] = useState(false);
   const [cameraOn, setCameraOn] = useState(true);
   const [barMics, setBarMics] = useState<string[]>([]);
   const [barDisplays, setBarDisplays] = useState<string[]>([]);
   const [selectedMic, setSelectedMic] = useState("");
   const [selectedDisplay, setSelectedDisplay] = useState(0);
-  // A jegyzetfüzet-ablak FÓKUSZÁLT-e — EZ dönti el a diktálás-routingot. Ha másik
-  // appba kattintasz, a notebook elveszti a fókuszt → a diktálás oda megy, nem ide.
+  // Whether the notebook window is FOCUSED — THIS decides the dictation routing. If
+  // you click into another app, the notebook loses focus → dictation goes there, not here.
   const [notebookFocused, setNotebookFocused] = useState(false);
   const notebookFocusedRef = useRef(false);
   notebookFocusedRef.current = notebookFocused;
-  // A bar 📝 gombja: megnyitja a kis Lavox Notes jegyzetfüzet-ablakot.
+  // The bar's 📝 button: opens the small Lavox Notes notebook window.
   const openNotebook = useCallback(() => {
     invoke("show_notebook").catch(() => {});
-    setNotebookFocused(true); // megnyitáskor fókuszba kerül
+    setNotebookFocused(true); // gains focus when opened
   }, []);
   useEffect(() => {
     invoke<boolean>("is_notebook_focused").then(setNotebookFocused).catch(() => {});
@@ -129,7 +132,7 @@ function Overlay() {
       unClosed.then((f) => f()).catch(() => {});
     };
   }, []);
-  // Engedélyezett nyelvek (ISO kódok) — a backend tárolja, a transcribe ezt használja.
+  // Enabled languages (ISO codes) — stored by the backend, used by transcribe.
   const [langs, setLangs] = useState<string[]>([]);
   useEffect(() => {
     invoke<string[]>("get_languages").then(setLangs).catch(() => {});
@@ -137,23 +140,23 @@ function Overlay() {
   const toggleLang = useCallback((code: string) => {
     setLangs((prev) => {
       const next = prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code];
-      const final = next.length ? next : [code]; // legalább 1 nyelv
+      const final = next.length ? next : [code]; // at least 1 language
       invoke("set_languages", { langs: final }).catch(() => {});
       return final;
     });
   }, []);
 
-  // ── MEETING FELVÉTEL (Meet Bridge) ─────────────────────────────────────────
-  // Az extension jelzi a belépést → prompt ("Felvegyem?") vagy auto-indítás.
-  // Felvétel alatt a pill piros REC kapszulává válik; kattintás = stop.
+  // ── MEETING RECORDING (Meet Bridge) ────────────────────────────────────────
+  // The extension signals joining → prompt ("Record this?") or auto-start.
+  // While recording, the pill becomes a red REC capsule; click = stop.
   const [meetPrompt, setMeetPrompt] = useState<MeetInfo | null>(null);
   const [meetRec, setMeetRec] = useState<{ title: string; startedAt: number; kind: "meeting" | "video" } | null>(null);
   const [meetElapsed, setMeetElapsed] = useState(0);
   const meetRecRef = useRef<{ title: string; startedAt: number; kind: "meeting" | "video" } | null>(null);
   meetRecRef.current = meetRec;
 
-  // Az auto-record BACKENDBŐL (auto_record.json) — túléli az újratelepítést,
-  // szemben a localStorage-dzsal. A meet-joined döntés ezt a refet olvassa.
+  // Auto-record from the BACKEND (auto_record.json) — survives a reinstall,
+  // unlike localStorage. The meet-joined decision reads this ref.
   const autoRecordRef = useRef<boolean>(loadAutoRecord());
   useEffect(() => {
     invoke<boolean>("get_auto_record").then((v) => (autoRecordRef.current = v)).catch(() => {});
@@ -170,7 +173,7 @@ function Overlay() {
       let granted = await isPermissionGranted();
       if (!granted) granted = (await requestPermission()) === "granted";
       if (granted) sendNotification({ title, body });
-    } catch { /* nem kritikus */ }
+    } catch { /* non-critical */ }
   }, []);
 
   const startMeetRec = useCallback(async (info: MeetInfo) => {
@@ -180,8 +183,10 @@ function Overlay() {
       setMeetRec({ title: info.title || info.meetCode || "Meeting", startedAt: Date.now(), kind: "meeting" });
     } catch (e) {
       const msg = String(e);
-      if (msg.includes("Már fut")) {
-        // desync-védelem: a backend már rögzít → vegyük át az állapotot
+      // "already running" — error string from the Rust
+      // backend, matched verbatim; do not translate.
+      if (msg.includes("already running")) {
+        // desync guard: the backend is already recording → adopt its state
         setMeetRec({ title: info.title || "Meeting", startedAt: Date.now(), kind: "meeting" });
       } else {
         notify("LAVOX", t("Felvétel indítás sikertelen: {msg}").replace("{msg}", msg));
@@ -189,8 +194,8 @@ function Overlay() {
     }
   }, [notify]);
 
-  // Kézi VIDEÓ-felvétel a bárból — bármikor, meeting nélkül is
-  // (képernyő + rendszerhang + mikrofon, ugyanaz a gépezet).
+  // Manual VIDEO recording from the bar — anytime, even without a meeting
+  // (screen + system audio + microphone, same machinery).
   const cameraOnRef = useRef(true);
   cameraOnRef.current = cameraOn;
   const startVideoRec = useCallback(async () => {
@@ -198,8 +203,8 @@ function Overlay() {
     const now = new Date();
     const title = `${t("Videó")} ${now.toLocaleDateString("hu-HU", { month: "short", day: "numeric" })} ${now.toLocaleTimeString("hu-HU", { hour: "2-digit", minute: "2-digit" })}`;
     try {
-      // A kamera-buborékot CSAK ha be van kapcsolva az arc, a felvétel ELŐTT
-      // nyitjuk meg (PiP). Ha nincs kamera/engedély, a buborék magát zárja be.
+      // Open the camera bubble (PiP) BEFORE recording, and ONLY if the face
+      // is enabled. Without a camera/permission, the bubble closes itself.
       if (cameraOnRef.current) {
         await invoke("show_camera_bubble").catch(() => {});
       }
@@ -207,7 +212,8 @@ function Overlay() {
       setMeetRec({ title, startedAt: Date.now(), kind: "video" });
     } catch (e) {
       const msg = String(e);
-      if (msg.includes("Már fut")) {
+      // "already running" (Rust backend error, matched verbatim)
+      if (msg.includes("already running")) {
         setMeetRec({ title, startedAt: Date.now(), kind: "video" });
       } else {
         notify("LAVOX", t("Videó indítás sikertelen: {msg}").replace("{msg}", msg));
@@ -215,9 +221,9 @@ function Overlay() {
     }
   }, [notify]);
 
-  // Kézi MEETING-felvétel a bárból — kiegészítő és naptár NÉLKÜL is.
-  // (Eddig a meeting csak a Meet-bővítmény jelzésére vagy naptár-auto-recordra
-  // indult; ha egyik sincs, a Meeting mód elindíthatatlan volt.)
+  // Manual MEETING recording from the bar — even WITHOUT the extension and calendar.
+  // (Previously a meeting only started on the Meet extension's signal or via
+  // calendar auto-record; without either, Meeting mode couldn't be started.)
   const startMeetingManual = useCallback(async () => {
     if (meetRecRef.current) return;
     const now = new Date();
@@ -227,7 +233,8 @@ function Overlay() {
       setMeetRec({ title, startedAt: Date.now(), kind: "meeting" });
     } catch (e) {
       const msg = String(e);
-      if (msg.includes("Már fut")) {
+      // "already running" (Rust backend error, matched verbatim)
+      if (msg.includes("already running")) {
         setMeetRec({ title, startedAt: Date.now(), kind: "meeting" });
       } else {
         notify("LAVOX", t("Felvétel indítás sikertelen: {msg}").replace("{msg}", msg));
@@ -235,7 +242,7 @@ function Overlay() {
     }
   }, [notify]);
 
-  // ── VIDEÓ-VEZÉRLŐ MENÜ (a 🎥 gomb nyitja) ──────────────────────────────────
+  // ── VIDEO CONTROL MENU (opened by the 🎥 button) ───────────────────────────
   const openVideoMenu = useCallback(() => {
     setVideoMenu(true);
     setPanel(null);
@@ -258,7 +265,7 @@ function Overlay() {
     invoke("set_recording_display", { index: i }).catch(() => {});
     setPanel(null);
   }, []);
-  // Arc (kamera-buborék) ki/be — felvétel alatt élőben mutatja/rejti.
+  // Face (camera bubble) on/off — shows/hides it live during recording.
   const toggleCamera = useCallback(() => {
     setCameraOn((prev) => {
       const next = !prev;
@@ -276,9 +283,9 @@ function Overlay() {
     setMeetRec(null);
     try {
       const raw = await invoke<string>("stop_meeting_record", { title: rec.title });
-      // A képernyő-stop UTÁN zárjuk a buborékot (az utolsó frame-ig benne legyen).
+      // Close the bubble AFTER the screen stop (keep it in until the last frame).
       await invoke("hide_camera_bubble").catch(() => {});
-      // JSON: { mic: path, system: path|null } — régi formátum (sima path) is elfogadott
+      // JSON: { mic: path, system: path|null } — the old format (plain path) is also accepted
       let mic = raw;
       let system: string | null = null;
       try {
@@ -287,7 +294,7 @@ function Overlay() {
           mic = parsed.mic;
           system = parsed.system ?? null;
         }
-      } catch { /* sima path — régi backend */ }
+      } catch { /* plain path — old backend */ }
       if (system) {
         notify(t("LAVOX — meeting mentve (2 sáv)"), `${t("Mikrofon + rendszerhang:")}\n${mic}\n${system}`);
       } else {
@@ -296,8 +303,8 @@ function Overlay() {
           `${mic}\n${t("A többiek hangjához engedélyezd: Rendszerbeállítások → Adatvédelem → Képernyő- és rendszerhang-felvétel → Lavox Hub")}`,
         );
       }
-      // Automatikus átirat a mentés után — hibánál HANGOS értesítés, sosem
-      // halhat el csendben. A rec_id a felvétel-mappa neve a mic útvonalából.
+      // Automatic transcript after saving — on error, a LOUD notification; it
+      // must never die silently. rec_id is the recording folder name from the mic path.
       const recId = mic.split("/").slice(-2, -1)[0];
       if (recId) {
         invoke("remote_transcribe_meeting", { recId, harvest: localStorage.getItem("lavox-harvest") !== "false" })
@@ -314,10 +321,10 @@ function Overlay() {
     }
   }, [notify]);
 
-  // Bridge események az extensionből (Rust bridge.rs továbbítja).
+  // Bridge events from the extension (forwarded by Rust bridge.rs).
   useEffect(() => {
     const unJoin = listen<MeetInfo>("meet-joined", (e) => {
-      if (meetRecRef.current) return; // már rögzítünk
+      if (meetRecRef.current) return; // already recording
       if (autoRecordRef.current) {
         startMeetRec(e.payload);
       } else {
@@ -326,7 +333,7 @@ function Overlay() {
     });
     const unLeft = listen<MeetInfo>("meet-left", () => {
       setMeetPrompt(null);
-      // Csak a MEETING-felvételt állítjuk le kilépéskor — a kézi videó megy tovább.
+      // Only stop the MEETING recording on leave — a manual video keeps going.
       if (meetRecRef.current?.kind === "meeting") stopMeetRec();
     });
     return () => {
@@ -335,7 +342,7 @@ function Overlay() {
     };
   }, [startMeetRec, stopMeetRec]);
 
-  // REC időzítő (mm:ss a kapszulában).
+  // REC timer (mm:ss in the capsule).
   useEffect(() => {
     if (!meetRec) { setMeetElapsed(0); return; }
     const iv = window.setInterval(() => {
@@ -346,10 +353,10 @@ function Overlay() {
 
   const fmtElapsed = `${Math.floor(meetElapsed / 60)}:${String(meetElapsed % 60).padStart(2, "0")}`;
 
-  // Notch-infó (Dynamic Island-stílusú compact layout). Induláskor lekérjük; utána
-  // ESEMÉNY-VEZÉRELTEN frissül: a backend kijelző-átkonfigurálás (monitor csatlakozik/
-  // lecsatlakozik, felbontás/skálázás vált) callbackje küldi a "notch-refreshed"-et —
-  // nincs polling.
+  // Notch info (Dynamic Island-style compact layout). Fetched at startup; then
+  // updated EVENT-DRIVEN: the backend's display-reconfiguration callback (monitor
+  // connects/disconnects, resolution/scaling changes) sends "notch-refreshed" —
+  // no polling.
   const [notch, setNotch] = useState<NotchInfo | null>(null);
   useEffect(() => {
     invoke<NotchInfo>("get_notch_info").then(setNotch).catch(() => {});
@@ -372,35 +379,35 @@ function Overlay() {
   }, []);
   const modelPathRef = useRef<string | null>(null);
   const runningRef = useRef(false);
-  const recordingRef = useRef(false); // épp felvesz-e (toggle: 1. ⌃⇧Space start, 2. stop)
+  const recordingRef = useRef(false); // whether currently recording (toggle: 1st ⌃⇧Space start, 2nd stop)
   const modeRef = useRef<ModeId>(DEFAULT_MODE);
   const leaveTimer = useRef<number | null>(null);
-  // A window-méretezéshez: az előző terület (növekszik/zsugorodik döntéshez) +
-  // a késleltetett zsugorítás timere.
+  // For window sizing: the previous area (for the grow/shrink decision) +
+  // the delayed-shrink timer.
   const prevAreaRef = useRef(0);
   const resizeTimer = useRef<number | null>(null);
 
   const busy = phase === "recording" || phase === "transcribing";
   const doneOpen = phase === "done" && !!transcript;
-  // A vezérlősáv akkor látszik, ha: hover VAGY menü nyitva VAGY diktál/transzkribál
-  // VAGY kész átirat VAGY hiba VAGY meeting-prompt vár válaszra.
+  // The control bar is visible when: hover OR menu open OR dictating/transcribing
+  // OR a finished transcript OR an error OR a meeting prompt awaiting an answer.
   const controlsVisible = hovered || menuOpen || busy || doneOpen || phase === "error" || !!panel || !!meetPrompt || videoMenu;
 
-  // NOTCH-MÓD (Dynamic Island): a window a notch tetejére kerül (y=0, Rust), a
-  // tartalom a notch két oldalára (compact), kinyitva pedig a notch ALÁ bloomol.
+  // NOTCH MODE (Dynamic Island): the window goes to the top of the notch (y=0, Rust),
+  // the content sits on the two sides of the notch (compact), and when open it blooms BELOW the notch.
   const notched = !!notch?.has_notch;
   const notchH = notched ? notch!.notch_height : 0;
   const notchW = notched ? notch!.notch_right - notch!.notch_left : 0;
   const niWindowW = notchW + 2 * NOTCH_SIDE_W;
-  // Az al-panel magassága: a device-listák a tételszám szerint nőnek (kis felső+alsó
-  // margóval), a nyelv fix.
+  // Sub-panel height: the device lists grow with the item count (small top+bottom
+  // margins), the language panel is fixed.
   const panelH =
     panel === "language" ? 188
     : panel === "videomic" ? Math.min(220, 60 + (barMics.length + 1) * 34)
     : panel === "videoscreen" ? Math.min(220, 60 + Math.max(1, barDisplays.length) * 34)
     : 0;
 
-  // Az aktuális ablakméret levezetése az állapotból (prioritás fentről lefelé).
+  // Derive the current window size from state (priority from top to bottom).
   let size: { width: number; height: number };
   if (doneOpen) size = SIZES.done;
   else if (menuOpen) size = SIZES.menu;
@@ -410,29 +417,30 @@ function Overlay() {
   else size = SIZES.idle;
 
   if (notched) {
-    // A window szélessége KONSTANS (nem ugrik nyitáskor → nincs vízszintes glitch),
-    // csak a magasság nő. A glass ezen belül animálódik.
+    // The window width is CONSTANT (no jump on open → no horizontal glitch),
+    // only the height grows. The glass animates within it.
     size = {
       width: niWindowW,
       height: notchH + (size.height - 12) + (panel ? panelH + 16 : 0),
     };
   } else if (panel && !doneOpen) {
-    // PILL: a panel megnyitásakor az ablak lefelé nő, hogy elférjen
-    // (a notch-héj a saját ágán már kezeli a panelH-t).
+    // PILL: when the panel opens, the window grows downward to fit it
+    // (the notch shell already handles panelH on its own branch).
     size = { width: size.width, height: SIZES.hover.height + panelH + 16 };
   }
 
-  // Az ablakot a frontend méretezi (a Rust a tetejére, középre igazítja).
-  // Egyúttal jelezzük, hogy idle-ben vagyunk-e — csak akkor követi a pill a kurzort
-  // a képernyők közt (aktív állapotban a méret-pozícionálás úgyis a kurzor monitorára tesz).
+  // The frontend sizes the window (Rust aligns it top-center). We also signal
+  // whether we are idle — only then does the pill follow the cursor across
+  // screens (in an active state, size-positioning puts it on the cursor's monitor anyway).
   useEffect(() => {
     const apply = () =>
       invoke("set_pill_size", { width: size.width, height: size.height }).catch(() => {});
 
-    // SMOOTH KINYÍLÁS: a window legyen mindig elég nagy az ÉPP animálódó tartalomhoz.
-    // - NÖVEKEDÉS (kinyílás): azonnal nagyobb window → a pillnek van helye kinőni.
-    // - ZSUGORODÁS (záródás): VÁRJUK MEG a tartalom-animációt (~320ms), különben a
-    //   window levágja a még kifelé animálódó pillt → ettől „töredezett".
+    // SMOOTH EXPANSION: the window must always be large enough for the content
+    // CURRENTLY animating.
+    // - GROWING (opening): enlarge the window immediately → the pill has room to grow.
+    // - SHRINKING (closing): WAIT for the content animation (~320ms), otherwise the
+    //   window clips the still-animating pill → it looks "choppy".
     const area = size.width * size.height;
     const growing = area >= prevAreaRef.current;
     prevAreaRef.current = area;
@@ -454,18 +462,18 @@ function Overlay() {
     invoke("set_follow_enabled", { enabled: isIdle }).catch(() => {});
   }, [size.width, size.height]);
 
-  // Az overlay ablak body-ja: margó/görgetés nélkül, ÁTLÁTSZÓ háttér, hogy a
-  // pill körül átlátszódjon a desktop. Futásidőben állítjuk (a Vite globális
-  // CSS-bundle miatt nem tehetjük a CSS-be — a fő ablakot is érintené).
+  // The overlay window's body: no margin/scrolling, TRANSPARENT background so
+  // the desktop shows through around the pill. Set at runtime (because of the
+  // Vite global CSS bundle we can't put it in CSS — it would affect the main window too).
   useEffect(() => {
     const b = document.body.style;
-    const h = document.documentElement.style; // a <html> (:root) — az App.css fehérre festi!
+    const h = document.documentElement.style; // the <html> (:root) — App.css paints it white!
     const prev = { m: b.margin, o: b.overflow, bg: b.background, hbg: h.background };
     b.margin = "0";
     b.overflow = "hidden";
     b.background = "transparent";
-    // A fehér négyzet oka: az App.css `:root { background: #fff }` globálisan hat.
-    // A <html> hátterét is átlátszóra kell tenni, különben fehér marad a pill körül.
+    // The white square's cause: App.css `:root { background: #fff }` applies globally.
+    // The <html> background must also be transparent, otherwise it stays white around the pill.
     h.background = "transparent";
     return () => {
       b.margin = prev.m;
@@ -475,16 +483,16 @@ function Overlay() {
     };
   }, []);
 
-  // Diktálás TOGGLE: 1. ⌃⇧Space → felvétel indul (korlátlan idő),
-  // 2. ⌃⇧Space → stop + átirat + beillesztés a kurzorhoz.
-  // (StreamingRecorder = mic, nincs fix időkorlát.)
+  // Dictation TOGGLE: 1st ⌃⇧Space → recording starts (unlimited time),
+  // 2nd ⌃⇧Space → stop + transcript + insert at the cursor.
+  // (StreamingRecorder = mic, no fixed time limit.)
   const startDictation = useCallback(async () => {
     if (recordingRef.current || runningRef.current) return;
     try {
       if (!modelPathRef.current) {
         modelPathRef.current = await invoke<string>("find_model");
       }
-      setLevels(new Array(WAVE_BARS).fill(0)); // tiszta lapos hullám induláskor
+      setLevels(new Array(WAVE_BARS).fill(0)); // clean flat wave at start
       await invoke("start_dictation_record");
       recordingRef.current = true;
       invoke("dbg_log", { msg: "REC_START" }).catch(() => {});
@@ -493,10 +501,11 @@ function Overlay() {
       setStatus(t("Hallgatlak… engedd el a leállításhoz"));
     } catch (e) {
       const msg = String(e);
-      // Védelem a beragadás ellen: ha a backend már rögzít (frontend-backend
-      // desync, pl. hot-reload után), kezeljük rögzítésként → a következő
-      // ⌃⇧Space leállítja, nem ragad be.
-      if (msg.includes("Már fut") || msg.toLowerCase().includes("already")) {
+      // Stuck-state guard: if the backend is already recording (frontend-backend
+      // desync, e.g. after a hot reload), treat it as recording → the next
+      // ⌃⇧Space stops it instead of getting stuck. "Már fut" = the backend's
+      // Hungarian "already running" error, matched verbatim.
+      if (msg.includes("already running") || msg.toLowerCase().includes("already")) {
         recordingRef.current = true;
         setPhase("recording");
         setStatus(t("Felvétel… (engedd el a triggert a leállításhoz)"));
@@ -528,17 +537,17 @@ function Overlay() {
       setTranscript(result);
       setPhase("done");
       setStatus("");
-      // NOTEBOOK-ROUTING: csak ha a Lavox Notes a FÓKUSZÁLT ablak, akkor megy a
-      // diktált szöveg JEGYZETBE. Ha másik appba kattintottál, oda paste-elődik.
+      // NOTEBOOK ROUTING: dictated text goes into a NOTE only if Lavox Notes is
+      // the FOCUSED window. If you clicked into another app, it is pasted there.
       if (result.full_text.trim()) {
         if (notebookFocusedRef.current) {
-          // A notebook a fókuszált ablak → a diktált szöveg a szerkesztő
-          // KURZORÁHOZ kerül (az aktív jegyzetbe), nem új jegyzetként.
+          // The notebook is the focused window → dictated text goes to the
+          // editor's CURSOR (into the active note), not as a new note.
           emit("notebook-dictate", result.full_text.trim()).catch(() => {});
         } else {
           await invoke("insert_text", { text: result.full_text }).catch(() => {});
-          // Lavox Memory: a kész diktátum a memóriába folyik (fire-and-forget,
-          // a beillesztést sosem lassítja — a szerver nélkül is némán elmegy).
+          // Lavox Memory: the finished dictation flows into memory (fire-and-forget,
+          // never slows the insert — silently no-ops without the server too).
           invoke("memory_ingest_dictation", { text: result.full_text }).catch(() => {});
           const t3 = performance.now();
           invoke("dbg_log", {
@@ -546,11 +555,11 @@ function Overlay() {
           }).catch(() => {});
         }
       }
-      // FONTOS (a 2. diktálás bug fixe): beillesztés után a pill AUTOMATIKUSAN
-      // visszacsukódik a vonalra ~1.3mp múlva. Így minden diktálás tiszta IDLE-ből
-      // indul (mint az 1., működő kör), és a kinyitott pill nem rántja magához a
-      // fókuszt a következő Cmd+V-nél. (Wispr-stílus: a szöveg a kurzornál van,
-      // a pill nem marad kinyitva.)
+      // IMPORTANT (fix for the 2nd-dictation bug): after inserting, the pill
+      // AUTOMATICALLY collapses back to the line after ~1.3s. This way every
+      // dictation starts from clean IDLE (like the 1st, working round), and the
+      // open pill doesn't steal focus on the next Cmd+V. (Wispr style: the text
+      // is at the cursor, the pill doesn't stay open.)
       window.setTimeout(() => {
         if (!recordingRef.current && !runningRef.current) {
           setPhase((p) => (p === "done" ? "ready" : p));
@@ -567,13 +576,13 @@ function Overlay() {
     }
   }, []);
 
-  // ⌃⇧Space / mic gomb: ha épp felvesz → stop+átirat, különben → felvétel indul.
+  // ⌃⇧Space / mic button: if recording → stop+transcribe, otherwise → start recording.
   const recordAndTranscribe = useCallback(() => {
     if (recordingRef.current) stopAndTranscribe();
     else startDictation();
   }, [startDictation, stopAndTranscribe]);
 
-  // Mód-váltás a kör-menüből.
+  // Mode switch from the radial menu.
   const switchMode = useCallback(
     (next: ModeId) => {
       setMode(next);
@@ -586,8 +595,8 @@ function Overlay() {
     [recordAndTranscribe]
   );
 
-  // PUSH-TO-TALK: ⌃⇧Space lenyomva → felvétel; elengedve → stop + átirat + beillesztés.
-  // A Rust két eseményt küld: "dictation-start" (Pressed) és "dictation-stop" (Released).
+  // PUSH-TO-TALK: ⌃⇧Space held → recording; released → stop + transcript + insert.
+  // Rust sends two events: "dictation-start" (Pressed) and "dictation-stop" (Released).
   useEffect(() => {
     const unStart = listen("dictation-start", () => {
       invoke("dbg_log", { msg: `JS_GOT_DICTATION_START mode=${modeRef.current}` }).catch(() => {});
@@ -603,13 +612,13 @@ function Overlay() {
     };
   }, [startDictation, stopAndTranscribe]);
 
-  // VALÓS IDEJŰ WAVEFORM: a Rust ~50ms-enként küldi a mikrofon RMS-szintjét.
-  // Normalizáljuk (csend → ~0, beszéd → ~1) és gördülő pufferbe toljuk: az új
-  // minta a jobb szélre kerül, a régiek balra kicsúsznak → élő, beszéd-reaktív hullám.
+  // REAL-TIME WAVEFORM: Rust sends the microphone RMS level every ~50ms.
+  // We normalize it (silence → ~0, speech → ~1) and push it into a rolling buffer:
+  // the new sample enters on the right, old ones slide out left → a live, speech-reactive wave.
   useEffect(() => {
     const un = listen<number>("mic-level", (e) => {
       const rms = typeof e.payload === "number" ? e.payload : 0;
-      // Zajküszöb levonása + gyök-görbe → a halk beszéd is látszik, a csend lapos.
+      // Subtract the noise floor + square-root curve → quiet speech shows, silence stays flat.
       const norm = Math.min(1, Math.sqrt(Math.max(0, rms - 0.004) * 7));
       setLevels((prev) => [...prev.slice(1), norm]);
     });
@@ -618,7 +627,7 @@ function Overlay() {
     };
   }, []);
 
-  // Esc → menü/átirat bezárása (a pill nem tűnik el, csak vissza a vonalra).
+  // Esc → close the menu/transcript (the pill doesn't disappear, just returns to the line).
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
@@ -626,7 +635,7 @@ function Overlay() {
         setHovered(false);
         setPanel(null);
         setVideoMenu(false);
-        // Kész átirat és hiba is visszaáll → a pill összecsukódik a vonalra.
+        // Finished transcript and error states also reset → the pill collapses to the line.
         if (phase === "done" || phase === "error") setPhase("ready");
       }
     }
@@ -634,9 +643,9 @@ function Overlay() {
     return () => window.removeEventListener("keydown", onKey);
   }, [phase]);
 
-  // Hover-kezelés: belépéskor azonnal kibont; kilépéskor késleltetve csuk vissza,
-  // de csak ha közben nem indult diktálás/transzkripció/átirat/menü (azt a
-  // controlsVisible úgyis nyitva tartja a hover-flagtől függetlenül).
+  // Hover handling: expand immediately on enter; collapse with a delay on leave,
+  // but only if no dictation/transcription/transcript/menu started meanwhile
+  // (controlsVisible keeps those open regardless of the hover flag anyway).
   const clearLeaveTimer = () => {
     if (leaveTimer.current !== null) {
       window.clearTimeout(leaveTimer.current);
@@ -654,13 +663,13 @@ function Overlay() {
       leaveTimer.current = null;
     }, LEAVE_DELAY_MS);
   };
-  // Timer takarítása unmountkor.
+  // Clear the timer on unmount.
   useEffect(() => () => clearLeaveTimer(), []);
 
-  // HOVER FÓKUSZ NÉLKÜL: a Rust natívan figyeli a kurzort az ablak keretéhez
-  // képest (a WKWebView háttérben nem ad DOM hover-t), és "pill-hover" eseményt
-  // küld → ugyanúgy nyitunk/csukunk, mint az egér-belépésnél. Így bármelyik app
-  // van fókuszban, a pill hoverre kinyílik (Wispr-élmény).
+  // HOVER WITHOUT FOCUS: Rust natively tracks the cursor relative to the window
+  // frame (WKWebView gives no DOM hover in the background) and sends a
+  // "pill-hover" event → we open/close exactly like on mouse-enter. So whichever
+  // app has focus, the pill opens on hover (Wispr experience).
   useEffect(() => {
     const un = listen<boolean>("pill-hover", (e) => {
       if (e.payload) {
@@ -681,7 +690,7 @@ function Overlay() {
 
   const isDictation = mode === "dictation";
 
-  // A közös bar-tartalom (5 gomb + center-state + panel) propjai — MINDKÉT héj ezt kapja.
+  // Props of the shared bar content (5 buttons + center state + panel) — BOTH shells get this.
   const barProps: BarContentProps = {
     phase,
     isDictation,
@@ -716,17 +725,17 @@ function Overlay() {
   };
 
   return (
-    // A wrapper fogja a hover-eseményeket; átlátszó, kitölti az ablakot, és
-    // középre/felülre igazítja a pillt. A pill maga a lebegő elem.
+    // The wrapper catches the hover events; transparent, fills the window, and
+    // aligns the pill to top-center. The pill itself is the floating element.
     <div className="pill-wrap" onMouseEnter={onEnter} onMouseLeave={onLeave}>
-      {/* EGYETLEN shell, ami mindig jelen van. Hoverre KEYFRAME-mel előbb
-          ÖSSZESZŰKÜL (anticipáció), majd KITÁGUL a pillé (szélesedik + vastagodik),
-          helyet csinálva a tartalomnak — ami csak a tágulás után úszik be. */}
-      {/* NOTCH GLASS (mockup): egységes Liquid Glass kapszula a notch körül.
-          Felül: két teal pill a notch KÉT oldalán. Alul (nyitva): waveform. */}
+      {/* A SINGLE shell that is always present. On hover it first NARROWS with a
+          KEYFRAME (anticipation), then EXPANDS into the pill (widens + thickens),
+          making room for the content — which floats in only after the expansion. */}
+      {/* NOTCH GLASS (mockup): a unified Liquid Glass capsule around the notch.
+          Top: two teal pills on the TWO sides of the notch. Bottom (open): waveform. */}
       {notched && (() => {
-        // SZŰK: a glass szélessége ZÁRT = NYITOTT (notch + két bogyó, kis ráhagyással
-        // hogy a bogyók a lekerekített sarkon BELÜL legyenek). Nyitva csak LEFELÉ nő.
+        // NARROW: the glass width is the same CLOSED = OPEN (notch + two beads, with
+        // a small margin so the beads stay INSIDE the rounded corner). Open, it only grows DOWNWARD.
         const glassW = notchW + 108;
         const glassH = controlsVisible ? notchH + 66 + panelH : notchH + 6;
         return (
@@ -740,11 +749,11 @@ function Overlay() {
               reduceMotion ? { duration: 0 } : { type: "spring", stiffness: 220, damping: 24, mass: 0.9 }
             }
           >
-            {/* Felső sor (notch szint): két ikon-bogyó a notch két oldalán — zárva ÉS
-                nyitva is. A glass kicsit szélesebb + kisebb sarok, így a bogyók a
-                lekerekített sarkon BELÜL vannak, nem lógnak ki. */}
-            {/* Felső sor (notch szint): STÁTUSZ a notch két oldalán (NEM gomb → nincs
-                duplikáció a lenti funkció-gombokkal). Bal = állapot-pont, jobb = brand. */}
+            {/* Top row (notch level): two icon beads on the two sides of the notch —
+                both closed AND open. The glass is slightly wider + smaller corner, so
+                the beads sit INSIDE the rounded corner and don't stick out. */}
+            {/* Top row (notch level): STATUS on the two sides of the notch (NOT a button →
+                no duplication with the function buttons below). Left = status dot, right = brand. */}
             <div className="ni-toprow" style={{ height: notchH }}>
               <div className="ni-tpill ni-tpill-left">
                 <span className="ni-dot" data-recording={phase === "recording" || !!meetRec} />
@@ -758,8 +767,8 @@ function Overlay() {
                 )}
               </div>
             </div>
-            {/* Alsó sor (nyitva): felvételkor waveform + STOP; egyébként a 4 Wispr-gomb
-                (nyelv · mic · scratchpad) — mind KÜLÖN funkció, nincs duplikáció. */}
+            {/* Bottom row (open): waveform + STOP while recording; otherwise the 4 Wispr
+                buttons (language · mic · scratchpad) — each a SEPARATE function, no duplication. */}
             <AnimatePresence>
               {controlsVisible && (
                 <motion.div
@@ -773,7 +782,7 @@ function Overlay() {
                 </motion.div>
               )}
             </AnimatePresence>
-            {/* Al-panel (nyelv / eszköz-választók) — a közös BarPanel, mindkét héjban azonos. */}
+            {/* Sub-panel (language / device pickers) — the shared BarPanel, identical in both shells. */}
             <AnimatePresence>
               {panel && <BarPanel {...barProps} />}
             </AnimatePresence>
@@ -782,16 +791,16 @@ function Overlay() {
       })()}
       {!notched && (() => {
         const expandedW = doneOpen ? 340 : 330;
-        // NOTCH-MÓD: idle-ben a glass egy VÉKONY CSÍK a notch alatt (a zöld fülek
-        // mellette), hoverre a notch ALÓL lebloomol. Nem-notch: vékony bar ↔ pill.
-        // Meeting REC collapsed: nem vékony vonal, hanem látható piros kapszula.
+        // NOTCH MODE: idle, the glass is a THIN STRIP below the notch (the green tabs
+        // beside it); on hover it blooms out from UNDER the notch. Non-notch: thin bar ↔ pill.
+        // Meeting REC collapsed: not a thin line but a visible red capsule.
         const meetRecCompact = !!meetRec && !controlsVisible;
         const shellW = controlsVisible ? expandedW : notched ? notchW + 24 : meetRecCompact ? 190 : 130;
-        // Explicit magasság + overflow:hidden → a MINDIG mountolt tartalom
-        // collapsed-ben le van vágva (nem tűnik el a DOM-ból). APPLE-ELV: ne
-        // remováljuk/re-addeljük az elemeket morph közben, csak animáljuk őket.
-        // Collapsed: 18px — elfér benne a Lavox logó-jel (brand jelenlét zárva is).
-        // Panel (nyelv/eszköz) nyitva: a pill lefelé nő, hogy elférjen a panel.
+        // Explicit height + overflow:hidden → the ALWAYS-mounted content is
+        // clipped when collapsed (it doesn't leave the DOM). APPLE PRINCIPLE:
+        // don't remove/re-add elements mid-morph, only animate them.
+        // Collapsed: 18px — fits the Lavox logo mark (brand presence even closed).
+        // Panel (language/device) open: the pill grows downward to fit the panel.
         const shellH = doneOpen
           ? 200
           : panel && controlsVisible
@@ -818,8 +827,8 @@ function Overlay() {
               reduceMotion
                 ? { duration: 0 }
                 : {
-                    // APPLE-LIKE „liquid" spring: a glass folyékonyan csöppen le a
-                    // notch alól, enyhe beállással — egy összefüggő mozdulat.
+                    // APPLE-LIKE "liquid" spring: the glass drips fluidly from under
+                    // the notch, settling gently — one continuous motion.
                     type: "spring",
                     stiffness: 220,
                     damping: 24,
@@ -827,7 +836,7 @@ function Overlay() {
                   }
             }
           >
-            {/* Lavox logó-jel a ZÁRT pillben — brand jelenlét, alig-látható méretben */}
+            {/* Lavox logo mark in the CLOSED pill — brand presence at a barely-visible size */}
             <AnimatePresence>
               {idleLogoVisible && (
                 <motion.div
@@ -841,8 +850,8 @@ function Overlay() {
                 </motion.div>
               )}
             </AnimatePresence>
-            {/* Meeting REC mini-kapszula — collapsed állapotban a vonal HELYETT
-                piros pulzáló pill + timer. Kattintás = stop + mentés. */}
+            {/* Meeting REC mini capsule — in the collapsed state, INSTEAD of the line:
+                a red pulsing pill + timer. Click = stop + save. */}
             <AnimatePresence>
               {meetRecCompact && (
                 <motion.button
@@ -861,9 +870,9 @@ function Overlay() {
                 </motion.button>
               )}
             </AnimatePresence>
-            {/* Vezérlősáv — MINDIG a DOM-ban (Apple-elv), csak az OPACITY animálódik
-                a mérettel együtt → egy koordinált mozdulat, nincs mount/unmount-hézag.
-                Collapsed-ben az overflow:hidden levágja, az opacity:0 elrejti. */}
+            {/* Control bar — ALWAYS in the DOM (Apple principle), only the OPACITY
+                animates along with the size → one coordinated move, no mount/unmount gap.
+                When collapsed, overflow:hidden clips it and opacity:0 hides it. */}
             <motion.div
               className="pill-bar"
               data-tauri-drag-region
@@ -874,17 +883,17 @@ function Overlay() {
                   : { duration: 0.2, ease: "easeOut", delay: controlsVisible ? 0.1 : 0 }
               }
             >
-              {/* A közös bar-tartalom (5 direkt gomb / center-state) — UGYANAZ, mint a
-                  notch-héjban. A pill idle-ben mostantól az 5 gombot mutatja (nem a
-                  régi CircleMenu + felirat), így a két bar funkciója azonos. */}
+              {/* The shared bar content (5 direct buttons / center state) — the SAME as
+                  in the notch shell. The pill now shows the 5 buttons when idle (not the
+                  old CircleMenu + label), so the two bars are functionally identical. */}
               <BarContent {...barProps} />
             </motion.div>
-            {/* Nyelv/Polish al-panel — a közös BarPanel, a notch-héjjal azonos. */}
+            {/* Language/Polish sub-panel — the shared BarPanel, identical to the notch shell. */}
             <AnimatePresence>
               {panel && <BarPanel {...barProps} />}
             </AnimatePresence>
 
-            {/* Kinyíló terület — kész átirat. Magasság-anim + tartalom fade-in. */}
+            {/* Expanding area — finished transcript. Height animation + content fade-in. */}
             <AnimatePresence>
               {doneOpen && (
                 <motion.div
