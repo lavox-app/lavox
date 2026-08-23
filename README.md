@@ -16,6 +16,10 @@
   <a href="LICENSE">MIT license</a>
 </p>
 
+<p align="center">
+  <a href="https://github.com/lavox-app/lavox/actions/workflows/ci.yml"><img src="https://github.com/lavox-app/lavox/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+</p>
+
 ---
 
 Ask your AI assistant:
@@ -112,7 +116,9 @@ The design follows measured results rather than fashion:
 ## Quick start
 
 Requirements: macOS 13+ on Apple Silicon, Rust and pnpm for the app,
-Python 3.12 for the server.
+Python 3.12 for the server. Building the app needs Xcode with the
+macOS 15 SDK (the system-audio helper uses the newer ScreenCaptureKit
+recording API).
 
 ```bash
 git clone https://github.com/lavox-app/lavox.git && cd lavox
