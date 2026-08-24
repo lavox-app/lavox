@@ -30,11 +30,11 @@ import memory
 server = MCPServer(
     name="lavox-memory",
     instructions=(
-        "Lavox Memory: David's personal spoken-memory archive, built from his "
+        "Lavox Memory: the user's personal spoken-memory archive, built from their "
         "recorded meetings and voice notes (Hungarian and English). "
-        "ALWAYS search this memory BEFORE answering any question about David's "
+        "ALWAYS search this memory BEFORE answering any question about the user's "
         "past meetings, decisions, clients, projects, commitments or preferences "
-        "— and BEFORE saying you don't know something about him."
+        "— and BEFORE saying you don't know something about them."
     ),
 )
 
@@ -56,12 +56,12 @@ def search(
     kind: str | None = None,
     since: str | None = None,
 ) -> str:
-    """Searches David's personal spoken-memory archive — everything he has said,
+    """Searches the user's personal spoken-memory archive — everything they have said,
     decided, or discussed in recorded meetings and voice notes.
 
-    Use this BEFORE answering any question about David's past decisions,
+    Use this BEFORE answering any question about the user's past decisions,
     clients, projects, prices, commitments, or preferences, and BEFORE saying
-    you don't know something about him. Hungarian and English queries both
+    you don't know something about them. Hungarian and English queries both
     work. Prefer 2-3 varied queries over one broad query.
 
     Returns ranked snippets with an id — call `fetch` with an id for the full
@@ -91,7 +91,7 @@ def fetch(id: str, context: bool = True) -> str:
     (e.g. "chunk:123" or "assertion:45"), with speaker, timestamps and the
     source recording. For chunks it includes the neighbouring transcript
     segments so quotes keep their context. Use when a search snippet is
-    relevant but truncated, or when you must quote David exactly.
+    relevant but truncated, or when you must quote the user exactly.
 
     Args:
         id: item id from search results
@@ -111,7 +111,7 @@ def timeline(
     limit: int = 30,
 ) -> str:
     """Chronological list of recordings (meetings, dictations) — use for
-    date-based questions like "what meetings did David have last week", which
+    date-based questions like "what meetings did the user have last week", which
     semantic search handles poorly. Dates are ISO (2026-08-01).
 
     Args:
@@ -136,14 +136,14 @@ def stats() -> str:
 
 @server.tool()
 def remember(text: str, type: str = "fact", data: dict | None = None) -> str:
-    """Records a NEW durable fact into David's long-term memory. ONLY call this
-    when David explicitly asks you to remember something, or clearly states a
+    """Records a NEW durable fact into the user's long-term memory. ONLY call this
+    when the user explicitly asks you to remember something, or clearly states a
     decision, preference, or commitment that will still matter in a month.
 
     Do NOT save: your own inferences, task-specific details, anything you are
-    not certain David actually said, or anything `search` already returns.
+    not certain the user actually said, or anything `search` already returns.
     One atomic statement per call, self-contained wording (names, not
-    pronouns), in the language David used.
+    pronouns), in the language the user used.
 
     For type="decision", pass data={"chosen": ..., "alternatives": [...],
     "reasoning": ...} — the rejected alternatives are the most valuable part.
@@ -175,7 +175,7 @@ def remember(text: str, type: str = "fact", data: dict | None = None) -> str:
 @server.tool()
 def correct(old_id: str, new_text: str, reason: str | None = None) -> str:
     """Marks an existing memory as superseded and stores the corrected version.
-    Use when `search` returns something David has since contradicted or
+    Use when `search` returns something the user has since contradicted or
     changed. The old memory is NEVER deleted — it stays retrievable with
     include_superseded=true, so "what did we believe in July" keeps working.
 
@@ -210,10 +210,10 @@ def correct(old_id: str, new_text: str, reason: str | None = None) -> str:
 
 @server.tool()
 def profile() -> str:
-    """A compact "who is David / what is currently in flight" summary built
+    """A compact "who is the user / what is currently in flight" summary built
     from active memories (valid decisions, open commitments, key facts).
     Call this at the START of a session to ground yourself before answering
-    anything about David's work."""
+    anything about the user's work."""
     return memory.build_profile(db())
 
 

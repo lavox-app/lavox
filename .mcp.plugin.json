@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "lavox-memory": {
+      "type": "stdio",
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/lavox-mcp.sh"
+    }
+  }
+}

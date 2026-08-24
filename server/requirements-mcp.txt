@@ -1,0 +1,5 @@
+# Slim dependency set for running ONLY the MCP memory server
+# (no transcription stack — see requirements.txt for the full server).
+mcp>=2,<3
+sqlite-vec
+fastembed==0.8.0

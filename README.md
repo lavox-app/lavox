@@ -134,12 +134,37 @@ pnpm install
 ./build-and-install.command      # builds, signs (ad-hoc by default), installs
 
 # 3 · Wire the memory into Claude Code
-claude mcp add lavox-memory -- \
-  "$PWD/../server/.venv/bin/python3" "$PWD/../server/mcp_memory.py"
+claude mcp add lavox-memory -- "$PWD/../bin/lavox-mcp.sh"
 ```
 
 Record a meeting or dictate something, then ask Claude to search
 `lavox-memory` for it.
+
+## Plug it into your AI tools
+
+The memory speaks MCP, so any MCP client can read it. `bin/lavox-mcp.sh`
+manages its own slim Python environment on first run — no manual setup.
+
+**Claude Code, as a plugin** — registers the server and adds
+`/lavox-memory:memory-search`, `:decisions` and `:remember` commands:
+
+```
+/plugin marketplace add lavox-app/lavox
+/plugin install lavox-memory@lavox
+```
+
+**Codex CLI** — in `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.lavox-memory]
+command = "/path/to/lavox/bin/lavox-mcp.sh"
+```
+
+**Cursor** — in `.cursor/mcp.json` (or the global one):
+
+```json
+{ "mcpServers": { "lavox-memory": { "command": "/path/to/lavox/bin/lavox-mcp.sh" } } }
+```
 
 Decision extraction is optional. It uses OpenRouter by default, and
 `LAVOX_LLM_URL` points it at any OpenAI-compatible endpoint instead:
