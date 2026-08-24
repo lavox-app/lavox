@@ -63,6 +63,7 @@ import diarize as diar
 import fusion
 import identify
 import introductions
+import dictionary
 import meetings as mtg
 
 API_KEY = os.environ.get("LAVOX_API_KEY", "")
@@ -498,6 +499,8 @@ def _whisper_segments(path: str, language: str | None):
         beam_size=5,
         vad_filter=True,
         vad_parameters=VAD_PARAMETERS,
+        # personal dictionary → decoder vocabulary biasing (names, jargon)
+        hotwords=dictionary.hotwords_string(),
     )
     segs = []
     for seg in segments_raw:
@@ -1075,3 +1078,54 @@ def view_shared(token: str, request: Request):
         accounts.record_attempt(key)
         raise HTTPException(status_code=404, detail="This link is not valid")
     return JSONResponse(data)
+
+
+# ── Personal dictation dictionary ────────────────────────────────────────────
+
+class DictTermBody(BaseModel):
+    term: str
+    misheard: str | None = None
+
+
+class DictLearnBody(BaseModel):
+    raw: str
+    corrected: str
+
+
+@app.get("/api/dictionary")
+def dictionary_get(authorization: str | None = Header(default=None)):
+    check_auth(authorization)
+    return JSONResponse(dictionary.load())
+
+
+@app.post("/api/dictionary/term")
+def dictionary_add_term(
+    body: DictTermBody, authorization: str | None = Header(default=None)
+):
+    check_auth(authorization)
+    try:
+        entry = dictionary.add_term(body.term, misheard=body.misheard, source="manual")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return JSONResponse(entry)
+
+
+@app.delete("/api/dictionary/term/{term}")
+def dictionary_delete_term(
+    term: str, authorization: str | None = Header(default=None)
+):
+    check_auth(authorization)
+    if not dictionary.remove_term(term):
+        raise HTTPException(status_code=404, detail="No such term")
+    return JSONResponse({"removed": term})
+
+
+@app.post("/api/dictionary/learn")
+def dictionary_learn(
+    body: DictLearnBody, authorization: str | None = Header(default=None)
+):
+    """The Hub's correction hook: the user edited a dictation, the diff teaches
+    the dictionary (term-like replacements only — see dictionary.py rules)."""
+    check_auth(authorization)
+    pairs = dictionary.learn_from_correction(body.raw, body.corrected)
+    return JSONResponse({"learned": pairs})

@@ -4,6 +4,7 @@ mod bridge;
 mod calendar;
 mod export;
 mod gauth;
+mod dictionary;
 mod hotkey;
 mod inject;
 mod notch;
@@ -230,6 +231,31 @@ fn stop_dictation_record() -> Result<String, String> {
 /// finished text is submitted separately. Best-effort: if the server is not
 /// running or has no memory module, we let it go silently (it must NEVER
 /// affect dictation's main path — transcription + insertion).
+#[tauri::command]
+async fn dictation_learn(raw: String, corrected: String) -> Result<(), String> {
+    // The user edited a dictation on the overlay — the diff teaches the
+    // personal dictionary. Fire-and-forget: a dropped correction only means
+    // one missed learning opportunity, never a blocked UI.
+    if raw.trim().is_empty() || corrected.trim().is_empty() || raw == corrected {
+        return Ok(());
+    }
+    let cfg = remote::load_config();
+    let url = format!("{}/api/dictionary/learn", cfg.url.trim_end_matches('/'));
+    tauri::async_runtime::spawn(async move {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(10))
+            .build();
+        if let Ok(client) = client {
+            let _ = client
+                .post(&url)
+                .json(&serde_json::json!({ "raw": raw, "corrected": corrected }))
+                .send()
+                .await;
+        }
+    });
+    Ok(())
+}
+
 #[tauri::command]
 async fn memory_ingest_dictation(text: String) -> Result<(), String> {
     if text.trim().len() < 25 {
@@ -1876,6 +1902,7 @@ pub fn run() {
             record_mic,
             transcribe_wav,
             memory_ingest_dictation,
+            dictation_learn,
             get_server_config,
             set_server_config,
             hub_pair_claim,

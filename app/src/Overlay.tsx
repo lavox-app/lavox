@@ -12,7 +12,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, emit } from "@tauri-apps/api/event";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { RotateCcw, Square } from "lucide-react";
+import { Pencil, RotateCcw, Square } from "lucide-react";
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
 import { BarContent, BarPanel, type BarContentProps, type BarPanelKind } from "./components/BarContent";
 import { WAVE_BARS } from "./components/Waveform";
@@ -101,6 +101,10 @@ function Overlay() {
   const [_status, setStatus] = useState("");
   const [transcript, setTranscript] = useState<TranscriptResult | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  // Dictation correction: the edited text teaches the personal dictionary.
+  const [editDraft, setEditDraft] = useState<string | null>(null);
+  const editingRef = useRef(false);
+  const lastRawRef = useRef<string>("");
   const [hovered, setHovered] = useState(false);
   // Real-time microphone levels for the waveform (rolling buffer, newest at the end).
   const [levels, setLevels] = useState<number[]>(() => new Array(WAVE_BARS).fill(0));
@@ -388,7 +392,7 @@ function Overlay() {
   const resizeTimer = useRef<number | null>(null);
 
   const busy = phase === "recording" || phase === "transcribing";
-  const doneOpen = phase === "done" && !!transcript;
+  const doneOpen = (phase === "done" && !!transcript) || editDraft !== null;
   // The control bar is visible when: hover OR menu open OR dictating/transcribing
   // OR a finished transcript OR an error OR a meeting prompt awaiting an answer.
   const controlsVisible = hovered || menuOpen || busy || doneOpen || phase === "error" || !!panel || !!meetPrompt || videoMenu;
@@ -535,6 +539,7 @@ function Overlay() {
       const words = result.full_text.trim() ? result.full_text.trim().split(/\s+/).length : 0;
       invoke("dbg_log", { msg: `TRANSCRIBED +${Math.round(t2 - t1)}ms words=${words}` }).catch(() => {});
       setTranscript(result);
+      lastRawRef.current = result.full_text.trim();
       setPhase("done");
       setStatus("");
       // NOTEBOOK ROUTING: dictated text goes into a NOTE only if Lavox Notes is
@@ -561,13 +566,13 @@ function Overlay() {
       // open pill doesn't steal focus on the next Cmd+V. (Wispr style: the text
       // is at the cursor, the pill doesn't stay open.)
       window.setTimeout(() => {
-        if (!recordingRef.current && !runningRef.current) {
+        if (!recordingRef.current && !runningRef.current && !editingRef.current) {
           setPhase((p) => (p === "done" ? "ready" : p));
           setTranscript(null);
           setMenuOpen(false);
           setHovered(false);
         }
-      }, 1300);
+      }, 2200);
     } catch (e) {
       setPhase("error");
       setStatus(t("Hiba: {msg}").replace("{msg}", String(e)));
@@ -575,6 +580,29 @@ function Overlay() {
       runningRef.current = false;
     }
   }, []);
+
+  const startCorrection = useCallback(() => {
+    editingRef.current = true;
+    setEditDraft((transcript?.full_text ?? lastRawRef.current).trim());
+  }, [transcript]);
+
+  const closeCorrection = useCallback(() => {
+    editingRef.current = false;
+    setEditDraft(null);
+    setTranscript(null);
+    setPhase((p) => (p === "done" ? "ready" : p));
+  }, []);
+
+  const saveCorrection = useCallback(() => {
+    const corrected = (editDraft ?? "").trim();
+    const raw = lastRawRef.current;
+    closeCorrection();
+    if (corrected && raw && corrected !== raw) {
+      invoke("dictation_learn", { raw, corrected }).catch(() => {});
+      setStatus(t("Szótár frissítve"));
+      window.setTimeout(() => setStatus(""), 1800);
+    }
+  }, [editDraft, closeCorrection]);
 
   // ⌃⇧Space / mic button: if recording → stop+transcribe, otherwise → start recording.
   const recordAndTranscribe = useCallback(() => {
@@ -909,13 +937,39 @@ function Overlay() {
                     animate={{ opacity: 1, y: 0 }}
                     transition={reduceMotion ? { duration: 0 } : { delay: 0.06, duration: 0.22, ease: "easeOut" }}
                   >
-                    <p className="pill-transcript">{transcript?.full_text || t("(üres)")}</p>
-                    <div className="pill-actions">
-                      <button className="pill-action" onClick={() => recordAndTranscribe()}>
-                        <RotateCcw size={13} strokeWidth={2.2} />
-                        {t("Újra")}
-                      </button>
-                    </div>
+                    {editDraft !== null ? (
+                      <>
+                        <textarea
+                          className="pill-edit"
+                          value={editDraft}
+                          onChange={(e) => setEditDraft(e.target.value)}
+                          rows={3}
+                          autoFocus
+                        />
+                        <div className="pill-actions">
+                          <button className="pill-action" onClick={saveCorrection}>
+                            {t("Mentés")}
+                          </button>
+                          <button className="pill-action" onClick={closeCorrection}>
+                            {t("Mégse")}
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <p className="pill-transcript">{transcript?.full_text || t("(üres)")}</p>
+                        <div className="pill-actions">
+                          <button className="pill-action" onClick={() => recordAndTranscribe()}>
+                            <RotateCcw size={13} strokeWidth={2.2} />
+                            {t("Újra")}
+                          </button>
+                          <button className="pill-action" onClick={startCorrection}>
+                            <Pencil size={13} strokeWidth={2.2} />
+                            {t("Javítás")}
+                          </button>
+                        </div>
+                      </>
+                    )}
                   </motion.div>
                 </motion.div>
               )}

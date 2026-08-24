@@ -295,4 +295,6 @@ export const EN: Record<string, string> = {
     "Paired ✓ — the Hub is now connected to your cloud account",
   "Párosító kód a webappból (pl. E9MK-G3YD)": "Pairing code from the web app (e.g. E9MK-G3YD)",
   "Párosítás": "Pair",
+  "Javítás": "Fix",
+  "Szótár frissítve": "Dictionary updated",
 };

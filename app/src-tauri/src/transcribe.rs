@@ -188,6 +188,13 @@ pub fn transcribe_wav(
     // context — otherwise the model tends to roll the previous closing
     // phrase ("köszönöm") forward.
     params.set_no_context(true);
+    // Personal dictionary → vocabulary biasing. Dictations are short (<30 s),
+    // so the whole utterance sits in the first window where the prompt applies.
+    let dict = crate::dictionary::load();
+    let dict_prompt = dict.initial_prompt();
+    if let Some(ref prompt) = dict_prompt {
+        params.set_initial_prompt(prompt);
+    }
     // Use all physical cores for faster inference.
     let threads = std::thread::available_parallelism()
         .map(|n| n.get() as i32)
@@ -208,11 +215,11 @@ pub fn transcribe_wav(
             .ok_or_else(|| format!("segment {i} not found"))?;
         let start_ms = seg.start_timestamp() * 10;
         let end_ms = seg.end_timestamp() * 10;
-        let text = seg
-            .to_str_lossy()
-            .map_err(|e| format!("segment text failed: {e}"))?
-            .trim()
-            .to_string();
+        let text = dict.apply(
+            seg.to_str_lossy()
+                .map_err(|e| format!("segment text failed: {e}"))?
+                .trim(),
+        );
         if text.is_empty() {
             continue;
         }

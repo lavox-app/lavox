@@ -1077,3 +1077,23 @@
 .pill .ni-panel {
   align-self: stretch;
 }
+
+/* Dictation correction editor — same visual family as pill-transcript */
+.pill-edit {
+  width: 100%;
+  resize: none;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  color: inherit;
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 1.45;
+  padding: 8px 10px;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.pill-edit:focus {
+  border-color: rgba(127, 227, 166, 0.55);
+}
