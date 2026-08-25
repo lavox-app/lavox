@@ -1,7 +1,7 @@
 {
   "name": "lavox-memory",
   "displayName": "Lavox Memory",
-  "description": "Your spoken memory in Claude Code — search meetings and dictation, recall decisions with the rejected alternatives, remember and correct facts. Runs fully local.",
+  "description": "Your spoken memory in Claude Code: search meetings and dictation, recall decisions with the rejected alternatives, remember and correct facts. Runs fully local.",
   "version": "0.1.0",
   "author": { "name": "Lavox", "url": "https://lavox.app" },
   "homepage": "https://lavox.app",

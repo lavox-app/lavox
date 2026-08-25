@@ -9,7 +9,7 @@ Lavox is early and moving fast. The most useful contributions right now:
 
 ## Ground rules
 
-- The verbatim layer is canonical — no PR that deletes user data or rewrites
+- The verbatim layer is canonical: no PR that deletes user data or rewrites
   history in the memory store will be accepted. Corrections supersede, never erase.
 - Every memory write must carry a `source`. No exceptions.
 - Performance features stay free. We don't paywall speed.

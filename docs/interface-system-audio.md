@@ -5,7 +5,7 @@ name: SystemAudioCapture
 tags: [project/capture-aios, interface]
 ---
 
-# `SystemAudioCapture` — the platform audio interface
+# `SystemAudioCapture`: the platform audio interface
 
 > [!note] This is the Track A ↔ Track B seam.
 > A single Rust trait, two platform implementations. The Mac side comes from the [[TRACK-A-David|core app]], the Windows side from the [[TRACK-B-Adam|Windows platform]]. Both produce the same audio stream format → the pipeline above them (STT, diarization) is platform-independent.
@@ -44,7 +44,7 @@ pub enum AudioSource { Mic, System }
 | *(stub)* | `audio/stub.rs` | – | – | core (so it compiles on Mac without the Windows side) |
 
 ## Details both implementations must agree on
-- **Output format**: 16 kHz, mono, f32 PCM (what whisper.cpp expects) — resampling is the implementation's job.
+- **Output format**: 16 kHz, mono, f32 PCM (what whisper.cpp expects). Resampling is the implementation's job.
 - **Mic and system audio as separate streams** (via the `source` field), so `speaker.is_me` can be separated later.
 - **Error handling**: if a device disappears (hot-plug), `AudioError` + graceful stop, never panic.
 

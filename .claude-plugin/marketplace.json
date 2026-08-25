@@ -5,7 +5,7 @@
     {
       "name": "lavox-memory",
       "source": { "source": "github", "repo": "lavox-app/lavox" },
-      "description": "Your spoken memory in Claude Code — search, decisions, recall with verbatim quotes.",
+      "description": "Your spoken memory in Claude Code: search, decisions, recall with verbatim quotes.",
       "version": "0.1.0"
     }
   ]

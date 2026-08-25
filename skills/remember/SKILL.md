@@ -8,5 +8,5 @@ $ARGUMENTS
 
 Set the source to reflect that the user stated it explicitly. If the server
 warns about a similar existing memory, show the user the conflict and ask
-whether this supersedes it — if yes, use `correct` instead of writing a
+whether this supersedes it. If yes, use `correct` instead of writing a
 duplicate.

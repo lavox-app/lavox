@@ -6,7 +6,7 @@ version: 1.0.0-draft
 tags: [project/capture-aios, interface]
 ---
 
-# `CaptureResult` — the central data interface
+# `CaptureResult`: the central data interface
 
 > [!note] This is the engine → export data model.
 > The capture engine **produces** it, the ObsidianExporter **consumes** it. As long as the shape is fixed, the UI/export can be developed against mock data. **Versioned**: adding a new optional field is non-breaking; deleting/renaming a field is breaking → version bump.
@@ -62,16 +62,16 @@ type CaptureResult = {
 - **Streaming**: multiple `partial`s, one `final` at the end; the `final` is the source of truth.
 
 ## Open decisions (before M0)
-> [!question] D1 — `segments[]` granularity
+> [!question] D1: `segments[]` granularity
 > Segment level (sentence) vs word level (`words[]`). **Recommendation:** v0.1 segment level; word level as an additive field later.
 > - [ ] Decision: __________
 
-> [!question] D2 — Streaming vs batch
+> [!question] D2: Streaming vs batch
 > Live transcript (Wispr-style experience) now, or all at once at the end? **Recommendation:** v0.1 **batch** (simpler engine); live dictation in v0.2. `status` stays in the schema.
 > - [ ] Decision: __________
 
 ## Mock
-`mocks/sample-meeting.json` — a filled-in instance of the schema. Hand-maintained fixture; the export tests (`export.rs`) run against it, so any schema drift surfaces at compile time.
+`mocks/sample-meeting.json`: a filled-in instance of the schema. Hand-maintained fixture; the export tests (`export.rs`) run against it, so any schema drift surfaces at compile time.
 
 ## Sign-off
 - [ ] D1 + D2 decided

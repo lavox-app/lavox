@@ -24,7 +24,7 @@
 
 Ask your AI assistant:
 
-> *"What did we decide about the pricing last month — and why not the other option?"*
+> *"What did we decide about the pricing last month, and why not the other option?"*
 
 It answers from your own recorded meetings and voice notes, with the verbatim
 quote to prove it. That is what Lavox does.
@@ -37,14 +37,14 @@ quote to prove it. That is what Lavox does.
 
 Two problems, one root cause.
 
-**Everything you say evaporates.** Meetings, decisions, promises — spoken, then
+**Everything you say evaporates.** Meetings, decisions, promises: spoken, then
 gone. Three months later nobody remembers *why* option A won over option B.
 
 **Your AI tools have amnesia.** Every session starts from zero. You re-explain
-your projects, your clients, your constraints — every day, to every tool.
+your projects, your clients, your constraints. Every day, to every tool.
 
 Meeting notetakers solve neither: they upload your conversations to their
-cloud, summarize, and stop there. Lavox closes the whole loop instead — record
+cloud, summarize, and stop there. Lavox closes the whole loop instead: record
 locally, transcribe locally, build a structured memory, and serve that memory
 to every AI tool you use through the
 [Model Context Protocol](https://modelcontextprotocol.io).
@@ -53,10 +53,10 @@ to every AI tool you use through the
 
 | Capability | How |
 |---|---|
-| Meeting recording | Microphone and system audio, captured on-device. No bot joins your calls — works with Zoom, Meet, Teams, or a conversation at your desk. |
+| Meeting recording | Microphone and system audio, captured on-device. No bot joins your calls. Works with Zoom, Meet, Teams, or a conversation at your desk. |
 | Speaker identification | Layered diarization: voice profiles, two-track separation, and transcript evidence decide who said what. |
-| Dictation anywhere | Hold a hotkey, speak, release — text lands at your cursor. Whisper runs locally via Metal, with silence-hallucination filtering. |
-| Decision extraction | An LLM turns speech into typed records: decisions with the **chosen option, the rejected alternatives, and the stated reasoning** — plus facts, commitments, and tasks. |
+| Dictation anywhere | Hold a hotkey, speak, release: text lands at your cursor. Whisper runs locally via Metal, with silence-hallucination filtering. |
+| Decision extraction | An LLM turns speech into typed records: decisions with the **chosen option, the rejected alternatives, and the stated reasoning**, plus facts, commitments, and tasks. |
 | A memory with history | Corrections supersede, they never delete. "What did we believe in July?" remains answerable after you change your mind in August. |
 | An interface for AI, not for you | No search UI to learn. An MCP server exposes `search`, `fetch`, `timeline`, `remember`, `correct`, and `profile` to Claude Code, Claude Desktop, or any MCP client. |
 
@@ -71,15 +71,15 @@ to every AI tool you use through the
           │
           ▼  whisper + diarization (on-device)
  ┌─────────────────────────────────────────────┐
- │  VERBATIM LAYER  — the canonical record     │
+ │  VERBATIM LAYER: the canonical record       │
  │  ~400-token chunks with context headers:    │
  │  [date | kind | title | speaker] + text     │
  ├─────────────────────────────────────────────┤
- │  ASSERTION LAYER — the extracted index      │
+ │  ASSERTION LAYER: the extracted index       │
  │  decision {chosen, alternatives, reasoning} │
  │  fact · commitment · preference · task      │
  │  bitemporal: occurred_at · invalidated_at · │
- │  superseded_by — corrections never delete   │
+ │  superseded_by: corrections never delete    │
  └─────────────────────────────────────────────┘
           │
           ▼  four parallel searches: vector + full-text,
@@ -101,12 +101,12 @@ The design follows measured results rather than fashion:
   failures by 35–49% in
   [Anthropic's measurements](https://www.anthropic.com/engineering/contextual-retrieval).
   Recording metadata provides that context at zero cost.
-- **Recency is an additive, conditional bonus — never a multiplier.**
+- **Recency is an additive, conditional bonus, never a multiplier.**
   Multiplicative age-decay collapsed recall from 19/20 to 4/20 in our tests, so
   the recency term is bounded, additive, and applied only to time-sensitive
   queries.
-- **Bitemporality is a schema, not a framework.** Three columns —
-  `occurred_at`, `invalidated_at`, `superseded_by` — answer "what did we
+- **Bitemporality is a schema, not a framework.** Three columns,
+  `occurred_at`, `invalidated_at`, and `superseded_by`, answer "what did we
   believe then" without a graph database or an LLM call on every write.
 - **Writes are disciplined.** Every memory carries a mandatory `source`
   (`extracted` with a transcript anchor, `user_stated`, or `agent`), and
@@ -123,12 +123,12 @@ recording API).
 ```bash
 git clone https://github.com/lavox-app/lavox.git && cd lavox
 
-# 1 · The server — transcription, memory, MCP
+# 1 · The server: transcription, memory, MCP
 cd server
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/uvicorn app:app --host 127.0.0.1 --port 8040   # keep running
 
-# 2 · The app — recorder and dictation bar
+# 2 · The app: recorder and dictation bar
 cd ../app
 pnpm install
 ./build-and-install.command      # builds, signs (ad-hoc by default), installs
@@ -143,9 +143,9 @@ Record a meeting or dictate something, then ask Claude to search
 ## Plug it into your AI tools
 
 The memory speaks MCP, so any MCP client can read it. `bin/lavox-mcp.sh`
-manages its own slim Python environment on first run — no manual setup.
+manages its own slim Python environment on first run. No manual setup.
 
-**Claude Code, as a plugin** — registers the server and adds
+**Claude Code, as a plugin**: registers the server and adds
 `/lavox-memory:memory-search`, `:decisions` and `:remember` commands:
 
 ```
@@ -153,14 +153,14 @@ manages its own slim Python environment on first run — no manual setup.
 /plugin install lavox-memory@lavox
 ```
 
-**Codex CLI** — in `~/.codex/config.toml`:
+**Codex CLI**, in `~/.codex/config.toml`:
 
 ```toml
 [mcp_servers.lavox-memory]
 command = "/path/to/lavox/bin/lavox-mcp.sh"
 ```
 
-**Cursor** — in `.cursor/mcp.json` (or the global one):
+**Cursor**, in `.cursor/mcp.json` (or the global one):
 
 ```json
 { "mcpServers": { "lavox-memory": { "command": "/path/to/lavox/bin/lavox-mcp.sh" } } }
@@ -178,7 +178,7 @@ LAVOX_LLM_URL=http://localhost:11434/v1/chat/completions \
 LAVOX_LLM_KEY=... server/.venv/bin/python3 server/extract.py
 ```
 
-Without a key, the verbatim layer still does everything else — search,
+Without a key, the verbatim layer still does everything else: search,
 timeline, full MCP access. The LLM layer is additive, never required.
 
 ## Privacy, plainly
@@ -186,7 +186,7 @@ timeline, full MCP access. The LLM layer is additive, never required.
 - Audio never leaves your machine. Transcription is local
   (faster-whisper / whisper.cpp), embeddings are local (ONNX), and the memory
   is a SQLite file in `~/Lavox/memory/`.
-- The only network calls are ones you configure yourself — an optional LLM key
+- The only network calls are ones you configure yourself: an optional LLM key
   for extraction, optional Google Calendar, optional self-hosted sync. All of
   them are off by default.
 - No telemetry.
