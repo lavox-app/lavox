@@ -106,6 +106,12 @@ function Overlay() {
   const editingRef = useRef(false);
   const lastRawRef = useRef<string>("");
   const [hovered, setHovered] = useState(false);
+  // Mirror of `hovered` for timers: the post-dictation collapse must not fire
+  // while the cursor is on the pill (the Edit button lives in the open pill).
+  const hoveredRef = useRef(false);
+  useEffect(() => {
+    hoveredRef.current = hovered;
+  }, [hovered]);
   // Real-time microphone levels for the waveform (rolling buffer, newest at the end).
   const [levels, setLevels] = useState<number[]>(() => new Array(WAVE_BARS).fill(0));
   // Open sub-panel (language / device pickers), for the Wispr buttons.
@@ -565,14 +571,22 @@ function Overlay() {
       // dictation starts from clean IDLE (like the 1st, working round), and the
       // open pill doesn't steal focus on the next Cmd+V. (Wispr style: the text
       // is at the cursor, the pill doesn't stay open.)
-      window.setTimeout(() => {
-        if (!recordingRef.current && !runningRef.current && !editingRef.current) {
+      // 5s grace so the Edit button is reachable; while the cursor is on the
+      // pill the collapse keeps deferring, and it never fires mid-edit.
+      const scheduleCollapse = (delay: number) => {
+        window.setTimeout(() => {
+          if (recordingRef.current || runningRef.current || editingRef.current) return;
+          if (hoveredRef.current) {
+            scheduleCollapse(1500);
+            return;
+          }
           setPhase((p) => (p === "done" ? "ready" : p));
           setTranscript(null);
           setMenuOpen(false);
           setHovered(false);
-        }
-      }, 2200);
+        }, delay);
+      };
+      scheduleCollapse(5000);
     } catch (e) {
       setPhase("error");
       setStatus(t("Hiba: {msg}").replace("{msg}", String(e)));
