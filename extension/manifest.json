@@ -1,0 +1,41 @@
+{
+  "manifest_version": 3,
+  "name": "Lavox Meet Capture",
+  "version": "0.2.0",
+  "description": "Captures Google Meet captions, participants and active-speaker events for the Lavox Hub, with a live status popup.",
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "https://meet.google.com/*",
+    "http://127.0.0.1:5192/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Lavox Meet Capture: live status"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://meet.google.com/*"
+      ],
+      "js": [
+        "meet-observer.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "http://localhost:5190/*",
+        "https://*.lavox.app/*"
+      ],
+      "js": [
+        "dashboard-bridge.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  }
+}

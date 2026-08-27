@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  body {
+    width: 320px;
+    margin: 0;
+    padding: 14px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: #0e100e;
+    color: #dbd6cc;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  h1 {
+    font-size: 12px;
+    margin: 0 0 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: #6bb38a;
+  }
+  .row { display: flex; justify-content: space-between; gap: 8px; padding: 3px 0; }
+  .k { color: #9e998d; }
+  .v { font-weight: 600; text-align: right; }
+  .ok { color: #6bb38a; }
+  .warn { color: #e5a53d; }
+  .bad { color: #e5615d; }
+  .warnbox {
+    margin-top: 10px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: rgba(229, 165, 61, 0.12);
+    border: 1px solid rgba(229, 165, 61, 0.4);
+    color: #e5a53d;
+    font-weight: 600;
+  }
+  .cap {
+    margin-top: 10px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: #171a17;
+    border: 1px solid #262a26;
+    font-style: italic;
+    color: #b8b3a7;
+    word-break: break-word;
+  }
+  .parts { margin-top: 8px; color: #9e998d; word-break: break-word; }
+  .parts b { color: #dbd6cc; }
+  .foot { margin-top: 10px; font-size: 10px; color: #5c5a52; }
+</style>
+</head>
+<body>
+  <h1>Lavox Meet Capture</h1>
+  <div id="s">No active Meet tab. Open a meeting.</div>
+  <script src="popup.js"></script>
+</body>
+</html>

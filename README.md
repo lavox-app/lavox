@@ -181,6 +181,12 @@ LAVOX_LLM_KEY=... server/.venv/bin/python3 server/extract.py
 Without a key, the verbatim layer still does everything else: search,
 timeline, full MCP access. The LLM layer is additive, never required.
 
+## Google Meet names
+
+The optional Chrome extension in [`extension/`](extension/) captures Meet captions,
+participants and the active speaker, and hands them to the Hub, which fuses them
+with its own on-device recording. Load it unpacked from `chrome://extensions`.
+
 ## Privacy, plainly
 
 - Audio never leaves your machine. Transcription is local
