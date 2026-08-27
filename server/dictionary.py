@@ -6,7 +6,7 @@ applies the deterministic replacement layer before inserting text).
 
 Learning follows the Wispr Flow rulebook, adapted:
   - only term-like corrections are learned (proper nouns, technical terms,
-    acronyms — approximated as "contains an uppercase letter, a digit or a
+    acronyms, approximated as "contains an uppercase letter, a digit or a
     non-alphabetic character"), never plain rewording
   - each side of a learned pair is at most 4 words
   - at most 4 new pairs per learn call (one editing session)
@@ -98,7 +98,7 @@ def remove_term(term: str) -> bool:
 
 
 def _is_term_like(text: str) -> bool:
-    """Proper noun / technical term heuristic — what is worth learning."""
+    """Proper noun / technical term heuristic, what is worth learning."""
     stripped = text.strip()
     if not stripped:
         return False

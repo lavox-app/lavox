@@ -2,8 +2,9 @@
 
 Lavox is early and moving fast. The most useful contributions right now:
 
-- **Bug reports with recordings' metadata** (never upload audio of other people)
-- **Retrieval quality**: eval questions + expected answers from your own usage
+- **Bug reports with recording metadata** (never upload audio of other people)
+- **Retrieval quality**: eval questions and expected answers drawn from your own
+  usage (see `server/eval/`)
 - **Windows/Linux capture backends** for the app
 - **Docs**: anything that confused you is a bug in the docs
 
@@ -14,5 +15,9 @@ Lavox is early and moving fast. The most useful contributions right now:
 - Every memory write must carry a `source`. No exceptions.
 - Performance features stay free. We don't paywall speed.
 
-Run the server tests with `server/.venv/bin/python3 -m pytest` (where present),
-and `cargo test` in `app/src-tauri` for the Rust side.
+## Tests
+
+- Rust: `cargo test` in `app/src-tauri`.
+- Server: there is no pytest suite yet. `server/verify_accounts.py` exercises the
+  account layer against a scratch Postgres instance, and `server/eval/run_eval.py`
+  scores retrieval against your own memory.

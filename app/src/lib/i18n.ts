@@ -1,4 +1,4 @@
-// UI language — gettext pattern: the HUNGARIAN string in the code is the
+// UI language (gettext pattern): the HUNGARIAN string in the code is the
 // source (and the dictionary key), t() translates from the EN dictionary;
 // unknown key → the Hungarian source is shown. Because the Hungarian strings
 // act as lookup keys, they must stay byte-identical wherever t() is called.

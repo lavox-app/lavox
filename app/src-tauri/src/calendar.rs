@@ -101,7 +101,7 @@ pub async fn check_upcoming(token: &str) -> Result<Vec<UpcomingMeeting>, String>
 }
 
 /// ATTENDEE NAMES of the calendar event overlapping the recording's time
-/// window — the candidate pool for speaker identification. NOTE: invited ≠
+/// window, the candidate pool for speaker identification. NOTE: invited ≠
 /// present; the server may only use this list for name assignment together
 /// with confirming evidence (self-introduction, being addressed by name).
 pub async fn attendees_for_window(
@@ -161,7 +161,7 @@ pub fn start_polling(app: tauri::AppHandle, state: SharedCalendarState) {
 
             // The token comes from gauth: if expired, it refreshes ITSELF with
             // the refresh token. (Previously only the in-memory, 1-hour GIS
-            // token lived here — after expiry the poller stopped silently.)
+            // token lived here, after expiry the poller stopped silently.)
             let token = match crate::gauth::valid_access_token().await {
                 Some(t) => {
                     // Keep the shared state in sync so the UI stays consistent.

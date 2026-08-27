@@ -26,8 +26,8 @@ Ask your AI assistant:
 
 > *"What did we decide about the pricing last month, and why not the other option?"*
 
-It answers from your own recorded meetings and voice notes, with the verbatim
-quote to prove it. That is what Lavox does.
+It answers from your own recorded meetings and voice notes, and backs the
+answer with the verbatim quote. That is what Lavox does.
 
 <p align="center">
   <img src="docs/assets/memory-loop.png" alt="The memory loop: dictation is distilled into a decision card with the chosen option, the rejected alternative and the reasoning, then recalled by an AI over MCP with the verbatim quote" width="820" />
@@ -38,15 +38,15 @@ quote to prove it. That is what Lavox does.
 Two problems, one root cause.
 
 **Everything you say evaporates.** Meetings, decisions, promises: spoken, then
-gone. Three months later nobody remembers *why* option A won over option B.
+gone. Three months later nobody remembers *why* option A beat option B.
 
 **Your AI tools have amnesia.** Every session starts from zero. You re-explain
 your projects, your clients, your constraints. Every day, to every tool.
 
 Meeting notetakers solve neither: they upload your conversations to their
-cloud, summarize, and stop there. Lavox closes the whole loop instead: record
-locally, transcribe locally, build a structured memory, and serve that memory
-to every AI tool you use through the
+cloud, summarize, and stop there. Lavox closes the loop instead: it records
+locally, transcribes locally, builds a structured memory, and serves that
+memory to every AI tool you use through the
 [Model Context Protocol](https://modelcontextprotocol.io).
 
 ## What it does
@@ -55,10 +55,10 @@ to every AI tool you use through the
 |---|---|
 | Meeting recording | Microphone and system audio, captured on-device. No bot joins your calls. Works with Zoom, Meet, Teams, or a conversation at your desk. |
 | Speaker identification | Layered diarization: voice profiles, two-track separation, and transcript evidence decide who said what. |
-| Dictation anywhere | Hold a hotkey, speak, release: text lands at your cursor. Whisper runs locally via Metal, with silence-hallucination filtering. |
+| Dictation anywhere | Hold a hotkey, speak, release: the text lands at your cursor. Whisper runs locally on Metal, with filtering for the phrases it hallucinates on silence. |
 | Decision extraction | An LLM turns speech into typed records: decisions with the **chosen option, the rejected alternatives, and the stated reasoning**, plus facts, commitments, and tasks. |
-| A memory with history | Corrections supersede, they never delete. "What did we believe in July?" remains answerable after you change your mind in August. |
-| An interface for AI, not for you | No search UI to learn. An MCP server exposes `search`, `fetch`, `timeline`, `remember`, `correct`, and `profile` to Claude Code, Claude Desktop, or any MCP client. |
+| A memory with history | Corrections supersede; they never delete. "What did we believe in July?" is still answerable after you change your mind in August. |
+| An interface for AI, not for you | No search UI to learn. An MCP server exposes `search`, `fetch`, `timeline`, `stats`, `remember`, `correct`, and `profile` to Claude Code, Claude Desktop, or any MCP client. |
 
 <p align="center">
   <img src="docs/assets/dashboard.png" alt="The Lavox web dashboard showing a recorded meeting with transcript and speakers" width="820" />
@@ -90,19 +90,19 @@ to every AI tool you use through the
    Claude Code · Claude Desktop · local models
 ```
 
-The design follows measured results rather than fashion:
+The design follows measured results, not fashion:
 
 - **The raw transcript is canonical; extraction is an index.** Controlled
-  comparisons show verbatim chunks outperform lossy fact-extraction on recall,
+  comparisons show that verbatim chunks beat lossy fact extraction on recall,
   so Lavox keeps both layers and fuses them. Every assertion links back to the
   transcript chunk it came from.
-- **Context headers beat clever chunking.** Choice of chunking algorithm moves
-  recall by roughly two points; prepending context to each chunk cuts retrieval
-  failures by 35–49% in
+- **Context headers beat clever chunking.** The choice of chunking algorithm
+  moves recall by roughly two points; prepending context to each chunk cuts
+  retrieval failures by 35 to 49% in
   [Anthropic's measurements](https://www.anthropic.com/engineering/contextual-retrieval).
-  Recording metadata provides that context at zero cost.
+  Recording metadata provides that context for free.
 - **Recency is an additive, conditional bonus, never a multiplier.**
-  Multiplicative age-decay collapsed recall from 19/20 to 4/20 in our tests, so
+  Multiplicative age decay collapsed recall from 19/20 to 4/20 in our tests, so
   the recency term is bounded, additive, and applied only to time-sensitive
   queries.
 - **Bitemporality is a schema, not a framework.** Three columns,
@@ -110,12 +110,12 @@ The design follows measured results rather than fashion:
   believe then" without a graph database or an LLM call on every write.
 - **Writes are disciplined.** Every memory carries a mandatory `source`
   (`extracted` with a transcript anchor, `user_stated`, or `agent`), and
-  corrections are soft. This is the defense against memory poisoning: nothing
-  enters anonymously, nothing disappears silently.
+  corrections are soft. That is the defense against memory poisoning: nothing
+  enters anonymously, and nothing disappears silently.
 
 ## Quick start
 
-Requirements: macOS 13+ on Apple Silicon, Rust and pnpm for the app,
+Requirements: macOS 13 or later on Apple Silicon, Rust and pnpm for the app,
 Python 3.12 for the server. Building the app needs Xcode with the
 macOS 15 SDK (the system-audio helper uses the newer ScreenCaptureKit
 recording API).
@@ -143,9 +143,10 @@ Record a meeting or dictate something, then ask Claude to search
 ## Plug it into your AI tools
 
 The memory speaks MCP, so any MCP client can read it. `bin/lavox-mcp.sh`
-manages its own slim Python environment on first run. No manual setup.
+creates its own small Python environment on first run; there is nothing to
+set up by hand.
 
-**Claude Code, as a plugin**: registers the server and adds
+**Claude Code, as a plugin**: registers the server and adds the
 `/lavox-memory:memory-search`, `:decisions` and `:remember` commands:
 
 ```
@@ -166,7 +167,7 @@ command = "/path/to/lavox/bin/lavox-mcp.sh"
 { "mcpServers": { "lavox-memory": { "command": "/path/to/lavox/bin/lavox-mcp.sh" } } }
 ```
 
-Decision extraction is optional. It uses OpenRouter by default, and
+Decision extraction is optional. It uses OpenRouter by default;
 `LAVOX_LLM_URL` points it at any OpenAI-compatible endpoint instead:
 
 ```bash
@@ -179,30 +180,31 @@ LAVOX_LLM_KEY=... server/.venv/bin/python3 server/extract.py
 ```
 
 Without a key, the verbatim layer still does everything else: search,
-timeline, full MCP access. The LLM layer is additive, never required.
+timeline, full MCP access. The LLM layer is an addition, never a requirement.
 
 ## Google Meet names
 
-The optional Chrome extension in [`extension/`](extension/) captures Meet captions,
-participants and the active speaker, and hands them to the Hub, which fuses them
-with its own on-device recording. Load it unpacked from `chrome://extensions`.
+The optional Chrome extension in [`extension/`](extension/) captures Meet
+captions, participants and the active speaker, and hands them to Lavox Hub,
+which fuses them with its own on-device recording. Load it unpacked from
+`chrome://extensions`.
 
 ## Privacy, plainly
 
 - Audio never leaves your machine. Transcription is local
   (faster-whisper / whisper.cpp), embeddings are local (ONNX), and the memory
   is a SQLite file in `~/Lavox/memory/`.
-- The only network calls are ones you configure yourself: an optional LLM key
-  for extraction, optional Google Calendar, optional self-hosted sync. All of
-  them are off by default.
+- The only network calls are the ones you configure yourself: an optional LLM
+  key for extraction, optional Google Calendar, optional self-hosted sync. All
+  of them are off by default.
 - No telemetry.
 - Recording other people is regulated in most jurisdictions. Lavox records
-  only when you explicitly start it; obtaining consent is your responsibility.
+  only when you explicitly start it; getting consent is your responsibility.
 
 ## Status
 
 Working today: meeting recording with diarization, on-device dictation with
-anti-hallucination filtering, the full memory loop (ingest → extraction →
+hallucination filtering, the full memory loop (ingest → extraction →
 fusion search → MCP), and share links through an optional self-hosted server.
 
 Planned: notarized binary releases, a hosted sync option, a ChatGPT connector

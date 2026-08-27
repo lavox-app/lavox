@@ -13,7 +13,7 @@ export interface TranscriptResult {
   full_text: string;
 }
 
-// Mirror of the Rust CaptureResult (model.rs) — used by the meetings loop
+// Mirror of the Rust CaptureResult (model.rs), used by the meetings loop
 // (list → transcript → summary → export). Field names match the serde output.
 export interface CaptureSpeaker {
   id: string;

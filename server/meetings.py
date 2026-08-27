@@ -1,8 +1,8 @@
 """
-Meeting store — Postgres (metadata+transcript) + Cloudflare R2 (media blobs).
+Meeting store: Postgres (metadata+transcript) + Cloudflare R2 (media blobs).
 
 The client (lavox.app webapp or hangar-dashboard) sends the metadata as JSON,
-receives presigned PUT URLs for the large blobs, and uploads directly to R2 —
+receives presigned PUT URLs for the large blobs, and uploads directly to R2;
 the media does not flow through the VPS.
 
 Env (all required to activate the module, otherwise the endpoints return 503):
@@ -253,7 +253,7 @@ def save_meeting_direct(
             """,
             (
                 meeting_id, workspace,
-                # "Névtelen felvétel" = "Untitled recording" — see create_meeting.
+                # "Névtelen felvétel" = "Untitled recording", see create_meeting.
                 str(meta.get("title") or "Névtelen felvétel"),
                 str(meta.get("type") or "meeting"),
                 meta.get("created_at"),

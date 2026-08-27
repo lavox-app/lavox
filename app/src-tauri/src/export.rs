@@ -1,8 +1,8 @@
-//! M1.4 — ObsidianExporter: `CaptureResult` → structured Obsidian markdown.
+//! M1.4 ObsidianExporter: `CaptureResult` → structured Obsidian markdown.
 //!
 //! The engine (STT + later LLM pass) produces a `CaptureResult`; this module
 //! turns it into Obsidian-friendly markdown (YAML frontmatter + body). BEFORE
-//! the LLM pass, `summary/title/action_items` may be empty — the export handles
+//! the LLM pass, `summary/title/action_items` may be empty, the export handles
 //! that without failing (see INTERFACE-CaptureResult.md "Edge cases").
 //!
 //! The date (`created_at`) is passed in by the caller (frontend) as an ISO-8601

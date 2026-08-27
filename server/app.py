@@ -1,5 +1,5 @@
 """
-Lavox Transcription API — self-hosted faster-whisper + sherpa-onnx diarization.
+Lavox Transcription API: self-hosted faster-whisper + sherpa-onnx diarization.
 Deploy: docker compose up -d
 Endpoints:
   POST   /api/transcribe            (multipart audio; ?diarize=true → speaker identification)
@@ -14,7 +14,7 @@ Endpoints:
   DELETE /api/meetings/{id}
 
 Multi-tenant: every speaker operation is scoped by the X-Workspace-Id header
-(default: "default" — local/self-hosted, single-user mode).
+(default: "default", local/self-hosted, single-user mode).
 """
 
 import asyncio
@@ -49,7 +49,7 @@ except Exception:
 
 
 def _memory_ingest_background(rec: dict, segments: list) -> None:
-    """Background ingest after transcription — the response does not wait for it.
+    """Background ingest after transcription, the response does not wait for it.
     Its failure never affects the main flow, it only logs."""
     try:
         db = _lavox_memory.connect()
@@ -99,7 +99,7 @@ async def lifespan(app: FastAPI):
         diarizer = diar.Diarizer()
         print(f"Diarizer loaded in {time.time() - t0:.1f}s")
     else:
-        print("Diarizer DISABLED (env or missing models — server/download_models.sh)")
+        print("Diarizer DISABLED (disabled by env, or models missing: run server/download_models.sh)")
     if mtg.available():
         try:
             mtg.init_schema()
@@ -140,7 +140,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Lavox Transcription API", version="1.1.0", lifespan=lifespan)
 
-# The hangar-dashboard (local Vite app) calls the API from the browser — CORS is needed.
+# The hangar-dashboard (local Vite app) calls the API from the browser, CORS is needed.
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 
 app.add_middleware(
@@ -178,7 +178,7 @@ def authorize(
 ) -> str:
     """Authentication + workspace authorization in one step.
 
-    Self-hosted mode (default): the old behavior — shared API key (or
+    Self-hosted mode (default): the old behavior, shared API key (or
     nothing, if there is no LAVOX_API_KEY), the workspace is only formally
     validated.
 
@@ -196,7 +196,7 @@ def authorize(
     # Two caller types:
     #  a) The webapp AS A SERVICE: it sends the service key + the
     #     X-Lavox-User-Id header. The key only exists on the webapp's server,
-    #     never in the browser — so no per-user token has to go into the
+    #     never in the browser, so no per-user token has to go into the
     #     session (from where it could leak).
     #  b) The Lavox Hub / direct client: sends its own per-user token.
     # The membership check is the same in both cases.
@@ -219,7 +219,7 @@ def authorize(
     ws = check_workspace(workspace)
     owned = principal["workspaces"]
     member_ids = {w["id"] for w in owned}
-    # The client may omit the header ("default") — in that case we fall back
+    # The client may omit the header ("default"), in that case we fall back
     # to their own first workspace, not the global "default".
     if ws == "default" and owned:
         return owned[0]["id"]
@@ -280,7 +280,7 @@ def require_accounts():
         )
 
 
-# WARNING: the auth endpoints are DELIBERATELY `def` (not `async def`) —
+# WARNING: the auth endpoints are DELIBERATELY `def` (not `async def`):
 # scrypt is second-scale, blocking CPU work. In an `async def` it would hold
 # the event loop, and a few concurrent login requests would paralyze the
 # whole server (unauthenticated DoS). FastAPI puts a plain `def` into the
@@ -334,7 +334,7 @@ def auth_oauth(body: OAuthBody, authorization: str | None = Header(default=None)
     provider (Google/Microsoft/Apple).
 
     SECURITY: this endpoint may ONLY be called by the webapp with the service
-    key. Ownership of the e-mail was proven by the provider to the webapp —
+    key. Ownership of the e-mail was proven by the provider to the webapp;
     the backend trusts the webapp. Without the key, anyone could claim an
     arbitrary e-mail address and take over an existing account's workspace
     with it.
@@ -374,7 +374,7 @@ def hub_pair_start(
 
 @app.post("/api/hub/pair/claim")
 def hub_pair_claim(body: ClaimBody, request: Request):
-    """Called by the HUB, WITHOUT auth — the code itself is the secret.
+    """Called by the HUB, WITHOUT auth, the code itself is the secret.
     Redeems it for a device token. Rate-limited so the short code cannot be
     brute-forced."""
     require_accounts()
@@ -444,7 +444,7 @@ def _harvest_named_speakers(
 ):
     """Automatic learning of the named speakers' voice profiles.
 
-    A speaker is "named" when the label is NOT the generic "Speaker N" form —
+    A speaker is "named" when the label is NOT the generic "Speaker N" form,
     i.e. it received a real name from CC fusion, enrollment, or another name
     source. We store their voice → next time we recognize them even without
     captions. The poisoning defense and the sample-count limit live in
@@ -454,7 +454,7 @@ def _harvest_named_speakers(
         return None
     learned, skipped = [], 0
 
-    # The recorder's ("me") profile from the mic track — the cleanest training
+    # The recorder's ("me") profile from the mic track, the cleanest training
     # material. If the request gives no name, the existing is_me profile's
     # name is extended (so a profile once recorded via the SpeakersPanel
     # keeps strengthening by itself).
@@ -529,14 +529,14 @@ async def transcribe(
     # Text-based name inference may ONLY assign names from these.
     candidate_names: str | None = Form(default=None),
     # auto_save: if true, AFTER transcription the server saves the recording
-    # to the cloud (Postgres + R2) BY ITSELF — so it appears in the webapp
+    # to the cloud (Postgres + R2) BY ITSELF, so it appears in the webapp
     # immediately, without a manual upload.
     auto_save: bool = Form(default=False),
     meeting_id: str | None = Form(default=None),
     title: str | None = Form(default=None),
     created_at: str | None = Form(default=None),
     rec_type: str = Form(default="meeting"),
-    # The real recording length (s) — the client knows it; without it the
+    # The real recording length (s), the client knows it; without it the
     # VAD-filtered speech time would be saved, which is shorter than the
     # actual length.
     duration_sec: str | None = Form(default=None),
@@ -562,7 +562,7 @@ async def transcribe(
         language = None if lang == "auto" else lang
         t0 = time.time()
 
-        # Whisper/diarization is synchronous and CPU-intensive — we put it in
+        # Whisper/diarization is synchronous and CPU-intensive, we put it in
         # to_thread so it does NOT block the event loop. With a blocked loop
         # the connection idle-timeouts (during the long, silent processing) →
         # "empty reply"; on a separate thread the loop serves the socket and
@@ -611,7 +611,7 @@ async def transcribe(
 
         # Meet CC fusion: real speaker names for the whisper segments
         # (based on time + text context; validates the fallible sources
-        # against each other — see fusion.py).
+        # against each other, see fusion.py).
         fusion_stats = None
         if captions_json:
             try:
@@ -624,7 +624,7 @@ async def transcribe(
         # ── TEXT-BASED NAME SIGNALS (self-introduction + addressing) ────
         # Deterministic regex layer for the clusters STILL unnamed. When a
         # pool (candidate_names) exists, only verifiably present names may
-        # be assigned — an invented name structurally cannot get in.
+        # be assigned, an invented name structurally cannot get in.
         intro_stats = None
         if speakers is not None:
             try:
@@ -649,7 +649,7 @@ async def transcribe(
 
         # ── VOICE LEARNING (harvest) ─────────────────────────────────────
         # Every speaker who received a name from ANYWHERE also gets a voice
-        # profile — so at the next meeting they are recognizable even without
+        # profile, so at the next meeting they are recognizable even without
         # captions. Can be disabled (harvest=false); the poisoning defense
         # lives in diarize.py.
         if harvest and diarizer is not None:
@@ -681,7 +681,7 @@ async def transcribe(
                     workspace,
                     mid,
                     {
-                        # "Névtelen felvétel" = "Untitled recording" — user-visible
+                        # "Névtelen felvétel" = "Untitled recording", user-visible
                         # default title of the Hungarian-language product UI.
                         "title": title or "Névtelen felvétel",
                         "type": rec_type,
@@ -765,15 +765,15 @@ async def enroll_speaker(
     with tempfile.NamedTemporaryFile(suffix=os.path.splitext(file.filename or "s.wav")[1] or ".wav") as tmp:
         tmp.write(content)
         tmp.flush()
-        # decode_audio + embed is blocking CPU work — we put it in to_thread
+        # decode_audio + embed is blocking CPU work, we put it in to_thread
         # (same pattern as in transcribe) so it does not freeze the event loop.
         samples = await asyncio.to_thread(decode_audio, tmp.name, sampling_rate=diar.SAMPLE_RATE)
 
     dur = len(samples) / diar.SAMPLE_RATE
     if dur < 5.0:
-        raise HTTPException(status_code=400, detail=f"The sample is too short ({dur:.1f}s) — minimum 5, ideally 10-30 seconds")
+        raise HTTPException(status_code=400, detail=f"The sample is too short ({dur:.1f}s): minimum 5 seconds, ideally 10-30")
     if dur > 120.0:
-        raise HTTPException(status_code=400, detail=f"The sample is too long ({dur:.1f}s) — maximum 120 seconds")
+        raise HTTPException(status_code=400, detail=f"The sample is too long ({dur:.1f}s): maximum 120 seconds")
 
     embedding = await asyncio.to_thread(d.embed, samples)
     profile = diar.save_speaker(workspace, name, is_me, embedding)
@@ -790,7 +790,7 @@ async def enroll_speaker(
 # (below) are DELIBERATELY plain `def`s, NOT `async def`. They run blocking
 # psycopg calls, which FastAPI puts into a threadpool for a plain `def`. As
 # `async def` they would block on the event loop, and a single slow DB moment
-# would freeze the WHOLE server (including /health) — this happened on
+# would freeze the WHOLE server (including /health), this happened on
 # 2026-08-03: a deploy built on an app.py older than this fix reverted these
 # to async, causing a total deadlock of several hours in production. If they
 # become async again (e.g. via a deploy from an older version), the bug
@@ -829,7 +829,7 @@ def remove_speaker(
 
 
 # ---------------------------------------------------------------------------
-# Meetings — metadata in Postgres, media in R2 (presigned URLs)
+# Meetings: metadata in Postgres, media in R2 (presigned URLs)
 # ---------------------------------------------------------------------------
 
 @app.post("/api/meetings")
@@ -914,7 +914,7 @@ def delete_meeting(
     require_meetings()
     if not mtg.delete_meeting(workspace, meeting_id):
         raise HTTPException(status_code=404, detail="No such meeting")
-    # The share dies with the meeting — otherwise a deleted meeting's link
+    # The share dies with the meeting, otherwise a deleted meeting's link
     # would remain "live" in the DB (resolve would return 404, but let's not
     # keep it).
     try:
@@ -925,16 +925,16 @@ def delete_meeting(
 
 
 # ---------------------------------------------------------------------------
-# Shareable links — the value of the Personal tier: viewing without an account.
+# Shareable links (the value of the Personal tier): viewing without an account.
 #
 # /api/shared/{token} is the ONLY unauthenticated data endpoint. Therefore:
 #   - the token is the secret (256 bits), the DB stores only a SHA-256 digest
-#   - the response is a RESTRICTED projection (shares._PUBLIC_FIELDS) —
+#   - the response is a RESTRICTED projection (shares._PUBLIC_FIELDS):
 #     workspace, meet_code, participants, evaluation NEVER go out
 #   - IP-based rate limit against guessing
 #   - every failure case is a UNIFORM 404 (an expired one must not be
 #     distinguishable from a non-existent one)
-# These are plain `def`s (not async) — they run blocking psycopg; see the
+# These are plain `def`s (not async), they run blocking psycopg; see the
 # warning at the meetings block above.
 # ---------------------------------------------------------------------------
 
@@ -965,7 +965,7 @@ def rotate_share(
     x_workspace_id: str = Header(default="default"),
     x_lavox_user_id: str | None = Header(default=None),
 ):
-    """Issue a new link while revoking the old one — if the old one leaked."""
+    """Issue a new link while revoking the old one, if the old one leaked."""
     workspace = authorize(authorization, x_workspace_id, x_lavox_user_id)
     require_shares()
     res = shares.rotate_share(workspace, meeting_id)
@@ -1002,7 +1002,7 @@ def _client_ip(request: Request) -> str:
     """The CALLER's real IP.
 
     The container runs behind nginx, so `request.client.host` is ALWAYS the
-    nginx container's address (172.19.0.x) — a rate limit keyed on that would
+    nginx container's address (172.19.0.x), a rate limit keyed on that would
     give all visitors a single shared bucket, and one guesser would lock out
     all genuine viewers. nginx sends the real address in `X-Real-IP` (see
     /opt/utter/nginx.conf `proxy_set_header X-Real-IP $remote_addr`).
@@ -1039,7 +1039,7 @@ def memory_ingest(
 
     Meetings are ingested automatically at the end of /api/transcribe;
     dictation, however, is produced on the Hub's Rust side (whisper.cpp) and
-    does not pass through this server — hence this separate intake gate.
+    does not pass through this server, hence this separate intake gate.
     Lives on the local machine (on the VPS _MEMORY_OK=False → 503), :8040 is
     bound to localhost only.
     """
@@ -1065,7 +1065,7 @@ def memory_ingest(
 
 @app.get("/api/shared/{token}")
 def view_shared(token: str, request: Request):
-    """PUBLIC — no authentication, possession of the link is the authorization."""
+    """PUBLIC, no authentication, possession of the link is the authorization."""
     require_shares()
     key = f"share:{_client_ip(request)}"
     if accounts.too_many_attempts(key):
@@ -1073,7 +1073,7 @@ def view_shared(token: str, request: Request):
 
     data = shares.resolve_share(token)
     if data is None:
-        # Only FAILED attempts count toward the limit — so a viewer opening
+        # Only FAILED attempts count toward the limit, so a viewer opening
         # their genuine link many times does not ban themselves, a guesser does.
         accounts.record_attempt(key)
         raise HTTPException(status_code=404, detail="This link is not valid")
@@ -1125,7 +1125,7 @@ def dictionary_learn(
     body: DictLearnBody, authorization: str | None = Header(default=None)
 ):
     """The Hub's correction hook: the user edited a dictation, the diff teaches
-    the dictionary (term-like replacements only — see dictionary.py rules)."""
+    the dictionary (term-like replacements only, see dictionary.py rules)."""
     check_auth(authorization)
     pairs = dictionary.learn_from_correction(body.raw, body.corrected)
     return JSONResponse({"learned": pairs})

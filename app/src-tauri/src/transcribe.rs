@@ -1,13 +1,14 @@
-//! M1.2 — whisper.cpp transcription via whisper-rs.
+//! M1.2: whisper.cpp transcription via whisper-rs.
 //! Takes a WAV file path + model path → returns segments with timestamps.
 //!
-//! Hallucination protection (2026-08-14): on silence, whisper — due to its
-//! Hungarian training data (subtitled videos) — typically invents closing
-//! phrases like "köszönöm" ("thank you") or "namaste". Four layers of defense:
+//! Hallucination protection (2026-08-14): on silence, whisper typically
+//! invents closing phrases like "köszönöm" ("thank you") or "namaste", a
+//! side effect of its Hungarian training data (subtitled videos). Four
+//! layers of defense:
 //!   1. the model is loaded once and stays in memory (the "slow start" was
 //!      caused by EVERY dictation reloading the 1.6 GB model),
 //!   2. leading/trailing silence is trimmed (push-to-talk always includes
-//!      key noise + a breath at the edges) — if the whole recording is
+//!      key noise + a breath at the edges), if the whole recording is
 //!      silence, whisper is never started,
 //!   3. no_context: dictations are independent, so there is no "köszönöm,
 //!      köszönöm" repetition rolling over from the previous buffer,
@@ -54,7 +55,7 @@ fn rms(chunk: &[f32]) -> f32 {
 }
 
 /// Trims leading/trailing silence. `None` = no speech in the recording.
-/// Returns: (trimmed slice, cut start in ms — for shifting timestamps back).
+/// Returns: (trimmed slice, cut start in ms, for shifting timestamps back).
 fn trim_silence(samples: &[f32]) -> Option<(&[f32], i64)> {
     let n = samples.len();
     let mut first: Option<usize> = None;
@@ -80,7 +81,7 @@ fn trim_silence(samples: &[f32]) -> Option<(&[f32], i64)> {
 }
 
 /// Is there at least one speech-level 20 ms window in the segment's time range?
-/// (Timestamps refer to the TRIMMED audio — the caller passes that as well.)
+/// (Timestamps refer to the TRIMMED audio, the caller passes that as well.)
 fn segment_has_speech(samples: &[f32], start_ms: i64, end_ms: i64) -> bool {
     let a = ((start_ms.max(0) as usize) * 16).min(samples.len());
     let b = ((end_ms.max(0) as usize) * 16).min(samples.len());
@@ -92,8 +93,8 @@ fn segment_has_speech(samples: &[f32], start_ms: i64, end_ms: i64) -> bool {
 
 /// Known silence hallucinations (lowercase, punctuation-free form). The
 /// Hungarian entries are whisper ASR hallucination artifacts matched against
-/// Hungarian speech — keep them byte-identical, do NOT translate. They are
-/// dropped ONLY under high no-speech probability — for a genuinely spoken
+/// Hungarian speech, keep them byte-identical, do NOT translate. They are
+/// dropped ONLY under high no-speech probability, for a genuinely spoken
 /// "köszönöm", no-speech is low and the energy check lets it through.
 const HALLUCINATIONS: &[&str] = &[
     "köszönöm",
@@ -122,7 +123,7 @@ fn is_hallucination(text: &str) -> bool {
 
 // ── Model cache ─────────────────────────────────────────────────────────────
 /// The loaded whisper context (model) stays in memory after the first
-/// dictation — loading takes several seconds and used to run on EVERY call.
+/// dictation, loading takes several seconds and used to run on EVERY call.
 /// Cost: the model (~1.6 GB) stays resident; that is the standard trade-off
 /// dedicated dictation apps (e.g. superwhisper) make for instant response.
 static MODEL_CACHE: OnceLock<Mutex<Option<(String, Arc<WhisperContext>)>>> = OnceLock::new();
@@ -136,7 +137,7 @@ fn cached_context(model_path: &str) -> Result<Arc<WhisperContext>, String> {
         }
     }
     let ctx = WhisperContext::new_with_params(model_path, WhisperContextParameters::default())
-        .map_err(|e| format!("model load failed: {e}"))?;
+        .map_err(|e| format!("Model load failed: {e}"))?;
     let arc = Arc::new(ctx);
     *guard = Some((model_path.to_string(), arc.clone()));
     Ok(arc)
@@ -169,7 +170,7 @@ pub fn transcribe_wav(
     };
 
     let ctx = cached_context(model_path)?;
-    let mut state = ctx.create_state().map_err(|e| format!("state create failed: {e}"))?;
+    let mut state = ctx.create_state().map_err(|e| format!("Failed to create whisper state: {e}"))?;
 
     // Beam search gives notably better accuracy than greedy for Hungarian.
     let mut params = FullParams::new(SamplingStrategy::BeamSearch {
@@ -185,7 +186,7 @@ pub fn transcribe_wav(
     params.set_suppress_blank(true);
     params.set_suppress_nst(true);
     // Dictations are independent: the previous buffer's text must NOT be
-    // context — otherwise the model tends to roll the previous closing
+    // context, otherwise the model tends to roll the previous closing
     // phrase ("köszönöm") forward.
     params.set_no_context(true);
     // Personal dictionary → vocabulary biasing. Dictations are short (<30 s),
@@ -203,7 +204,7 @@ pub fn transcribe_wav(
 
     state
         .full(params, samples)
-        .map_err(|e| format!("transcription failed: {e}"))?;
+        .map_err(|e| format!("Transcription failed: {e}"))?;
 
     let n = state.full_n_segments();
     let mut segments = Vec::with_capacity(n as usize);
@@ -217,7 +218,7 @@ pub fn transcribe_wav(
         let end_ms = seg.end_timestamp() * 10;
         let text = dict.apply(
             seg.to_str_lossy()
-                .map_err(|e| format!("segment text failed: {e}"))?
+                .map_err(|e| format!("Failed to read segment text: {e}"))?
                 .trim(),
         );
         if text.is_empty() {
@@ -262,7 +263,7 @@ pub fn transcribe_wav(
 mod tests {
     use super::*;
 
-    /// Speech-like signal (0.3-amplitude sine) — well above the silence threshold.
+    /// Speech-like signal (0.3-amplitude sine), well above the silence threshold.
     fn speech(n: usize) -> Vec<f32> {
         (0..n).map(|i| 0.3 * (i as f32 * 0.05).sin()).collect()
     }
@@ -279,7 +280,7 @@ mod tests {
 
     #[test]
     fn too_short_click_does_not_count_as_speech() {
-        // 100 ms of "speech" surrounded by silence — below MIN_SPEECH (300 ms).
+        // 100 ms of "speech" surrounded by silence, below MIN_SPEECH (300 ms).
         let mut v = quiet(16_000);
         v.extend(speech(1_600));
         v.extend(quiet(16_000));
@@ -306,12 +307,12 @@ mod tests {
     #[test]
     fn hallucination_detection_normalizes() {
         // Hungarian phrases below are functional data: they must match the
-        // (Hungarian) hallucination blacklist exactly — do not translate.
+        // (Hungarian) hallucination blacklist exactly, do not translate.
         assert!(is_hallucination("Köszönöm!"));
         assert!(is_hallucination("  köszönöm szépen  "));
         assert!(is_hallucination("Namaste."));
         assert!(is_hallucination("Thank you."));
-        // Real sentences that contain the word — NOT hallucinations.
+        // Real sentences that contain the word, NOT hallucinations.
         assert!(!is_hallucination("köszönöm hogy elküldted a szerződést"));
         assert!(!is_hallucination("köszönöm a gyors választ"));
         assert!(!is_hallucination("ez egy normális mondat"));
@@ -331,7 +332,7 @@ mod tests {
     #[test]
     fn genuinely_spoken_thank_you_is_kept() {
         // The CRITICAL case: the user really says "köszönöm" (thank you).
-        // The energy check must let it through — rule (b) only filters under
+        // The energy check must let it through, rule (b) only filters under
         // high no-speech, which whisper does not report for real speech.
         let v = speech(16_000);
         assert!(segment_has_speech(&v, 0, 1000));
@@ -341,7 +342,7 @@ mod tests {
 /// Read WAV via hound, convert to 16kHz mono f32 (what whisper.cpp expects).
 /// pub(crate): the track mixing in remote.rs uses this too.
 pub(crate) fn load_wav_16khz_mono(path: &str) -> Result<Vec<f32>, String> {
-    let mut reader = hound::WavReader::open(path).map_err(|e| format!("WAV open failed: {e}"))?;
+    let mut reader = hound::WavReader::open(path).map_err(|e| format!("Failed to open WAV: {e}"))?;
     let spec = reader.spec();
 
     let samples_f32: Vec<f32> = match spec.sample_format {

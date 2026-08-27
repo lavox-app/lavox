@@ -1,6 +1,4 @@
-//! `CaptureResult` — the motor → export data model. See `INTERFACE-CaptureResult.md`.
-//!
-//! NOTE: M0 skeleton, not yet wired into `lib.rs`. M1 step: add `mod model;`.
+//! `CaptureResult`: the engine → export data model. See `INTERFACE-CaptureResult.md`.
 
 use serde::{Deserialize, Serialize};
 

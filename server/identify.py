@@ -7,7 +7,7 @@ on the clusters still carrying a generic ("Speaker N") label.
 
 HALLUCINATION DEFENSE: a name may only be assigned from the candidate_pool
 (names verifiably invited / present), and the model is explicitly allowed
-to answer "I don't know". Without a pool the layer does NOT run — free-text
+to answer "I don't know". Without a pool the layer does NOT run, free-text
 guessing is never allowed into the transcript.
 """
 
@@ -65,7 +65,7 @@ def identify_remaining(
         f"(assigning any other name is FORBIDDEN): {json.dumps(unused, ensure_ascii=False)}\n\n"
         "Rules: one name may be assigned to only one speaker; if you are not "
         'at least 90% certain, the answer is "unknown". Being invited is by '
-        "itself NOT evidence of presence — only textual evidence counts "
+        "itself NOT evidence of presence, only textual evidence counts "
         "(self-introduction, response to being addressed, role reference).\n\n"
         + "\n".join(f'[{e["id"]}]: {e["text"]}' for e in excerpts)
         + '\n\nRespond with JSON ONLY: {"<id>": "<name or unknown>", ...}'
@@ -92,7 +92,7 @@ def identify_remaining(
     renamed, used = 0, set()
     for spk in generic:
         name = (mapping.get(spk["id"]) or "").strip()
-        # Pool constraint + duplicate ban — the model's answer alone is not enough.
+        # Pool constraint + duplicate ban, the model's answer alone is not enough.
         if name and name != "unknown" and name in unused and name not in used:
             spk["label"] = name
             used.add(name)

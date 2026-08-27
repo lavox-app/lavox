@@ -1,4 +1,4 @@
-"""Lavox Memory — fusion memory core (M0).
+"""Lavox Memory: fusion memory core (M0).
 
 A personal memory built from speech (meetings, dictation), read by any AI
 tool over MCP. There is no dedicated search UI: Lavox is a base layer here,
@@ -8,7 +8,7 @@ THREE LAYERS:
   1. VERBATIM (canonical): the raw transcript in ~400-token chunks with
      context headers. Never deleted. Controlled measurements (Letta,
      "verbatim chunks beat lossy extraction") show the raw layer is strong
-     on its own — so THIS is the store's source of truth, not the extracted
+     on its own, so THIS is the store's source of truth, not the extracted
      layer.
   2. ASSERTION (extracted index, populated from M1): typed assertions
      (decision/fact/preference/commitment) with bitemporal columns.
@@ -24,7 +24,7 @@ additive, bounded recency bonus ONLY for time-sensitive questions.
 Multiplicative age-decay is a proven recall killer (own measurement:
 19/20 → 4/20).
 
-STORAGE: SQLite (WAL) + sqlite-vec + FTS5 — one file, zero ops on the
+STORAGE: SQLite (WAL) + sqlite-vec + FTS5, one file, zero ops on the
 user's machine. The cloud tier (M2) mirrors the same schema in Postgres.
 Vectors are tagged with a model_id: two models' vectors can coexist during
 a migration, and self-hosters embed with whatever they want.
@@ -64,11 +64,11 @@ CHUNK_MAX_CHARS = 1400
 CHUNK_MIN_CHARS = 120          # neighbouring segments shorter than this get merged
 RRF_K = 60
 PER_LIST_LIMIT = 50
-RECENCY_GAMMA = 0.15           # at most 15% of the max RRF score — additive, bounded
+RECENCY_GAMMA = 0.15           # at most 15% of the max RRF score, additive, bounded
 RECENCY_HALFLIFE_DAYS = 30.0
 
 # Time-sensitive question patterns (HU+EN). If none match, the recency term is 0.
-# NOTE: the Hungarian words in this regex are functional data — they are
+# NOTE: the Hungarian words in this regex are functional data, they are
 # matched against Hungarian user queries. Do not translate them.
 _TIME_SENSITIVE = re.compile(
     r"\b(ma|mai|tegnap|legut[oó]bb|mostan[aá]ban|m[uú]lt h[eé]t|h[eé]ten|"
@@ -114,7 +114,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
 );
 
 -- Assertion layer (populated by M1; the schema and search are ready now).
--- The essence of bitemporality is three columns — no graph framework needed:
+-- The essence of bitemporality is three columns, no graph framework needed:
 --   occurred_at   = when it was said (event time)
 --   recorded_at   = when it entered the memory (record time)
 --   invalidated_at + superseded_by = supersedes chain, NOTHING is ever deleted
@@ -137,7 +137,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS assertions_fts USING fts5(
 );
 
 -- Which embedding model is active. Vectors live in model-tagged vec0 tables
--- (vec_chunk_<tag>, vec_assertion_<tag>) — a model swap = filling a new table
+-- (vec_chunk_<tag>, vec_assertion_<tag>), a model swap = filling a new table
 -- in parallel, switching over, dropping the old one. No downtime.
 CREATE TABLE IF NOT EXISTS embedding_models (
   model_id  TEXT PRIMARY KEY,
@@ -176,7 +176,7 @@ def _ensure_vec_tables(db: sqlite3.Connection, model_id: str, dim: int) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Embedding (fastembed — ONNX, local, model-swappable)
+# Embedding (fastembed: ONNX, local, model-swappable)
 # ---------------------------------------------------------------------------
 
 def _pick_model() -> tuple[str, int, str]:
@@ -192,7 +192,7 @@ def _pick_model() -> tuple[str, int, str]:
 
 
 def get_embedder():
-    """Lazy, process-level singleton — the model is loaded once."""
+    """Lazy, process-level singleton, the model is loaded once."""
     global _embedder, _embedder_meta
     if _embedder is None:
         from fastembed import TextEmbedding
@@ -238,7 +238,7 @@ def embed_query(text: str, style: str) -> bytes:
 
 
 # ---------------------------------------------------------------------------
-# Chunking — split on speaker change, with a context header
+# Chunking: split on speaker change, with a context header
 # ---------------------------------------------------------------------------
 
 def _fmt_ts(sec: float | None) -> str:
@@ -252,7 +252,7 @@ def build_chunks(recording: dict[str, Any], segments: list[dict[str, Any]]) -> l
     """Transcript segments → chunks with context headers.
 
     Rules (measurements show the chunking algorithm is second-order, the
-    header is first-order — hence a simple algorithm and a rich header):
+    header is first-order, hence a simple algorithm and a rich header):
       - always a new chunk on speaker change,
       - segments of the same speaker merged up to CHUNK_MAX_CHARS,
       - tiny segments (< CHUNK_MIN_CHARS) do not get a chunk of their own.
@@ -298,8 +298,8 @@ def build_chunks(recording: dict[str, Any], segments: list[dict[str, Any]]) -> l
     chunks = []
     for i, g in enumerate(groups):
         # Context injection: the header goes into the embedded text AND into
-        # FTS. Per Anthropic's measurement this is -35..49% retrieval error —
-        # for us the metadata is free (comes from the recording), no LLM needed.
+        # FTS. Anthropic measured a 35-49% drop in retrieval failures from this,
+        # and for us the metadata is free (it comes from the recording), no LLM needed.
         head_bits = [date, kind, title]
         # The "résztvevők:" (participants) and "beszélő:" (speaker) labels are
         # functional data: they are embedded/FTS-indexed with Hungarian
@@ -397,14 +397,14 @@ def _delete_recording(db: sqlite3.Connection, rid: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Search — 4 lists → RRF → cross-linking → conditional recency
+# Search: 4 lists → RRF → cross-linking → conditional recency
 # ---------------------------------------------------------------------------
 
 def _fts_query(user_query: str) -> str:
     """User text → safe FTS5 query.
 
     Every token is quoted (no syntax injection); tokens of 4+ characters get
-    a prefix star — cheap protection against Hungarian suffixes ("szerződés"
+    a prefix star, cheap protection against Hungarian suffixes ("szerződés"
     finds "szerződésről"). Tokens are implicitly AND-ed; if AND would return
     nothing, the caller can switch to OR.
     """
@@ -417,7 +417,7 @@ def _fts_query(user_query: str) -> str:
             parts.append(f'"{t}"')
     # OR mode: BM25 ranks multi-match results first anyway, while AND would
     # zero out the lexical branch as soon as a single question word is missing
-    # from the chunk ("what did we DISCUSS about project X" — 'discuss' is not
+    # from the chunk ("what did we DISCUSS about project X", 'discuss' is not
     # in the transcript).
     return " OR ".join(parts) if parts else '""'
 
@@ -463,7 +463,7 @@ def search(
         rows = []
     lists["chunk_fts"] = [(f"chunk:{r[0]}", i + 1) for i, r in enumerate(rows)]
 
-    # Assertion lists — empty in M0, live from M1; the fusion is ready.
+    # Assertion lists, empty in M0, live from M1; the fusion is ready.
     rows = db.execute(
         f"SELECT rowid FROM vec_assertion_{tag} WHERE embedding MATCH ? "
         f"ORDER BY distance LIMIT ?",
@@ -485,7 +485,7 @@ def search(
     if not scores:
         return []
 
-    # Conditional, additive, bounded recency — NEVER a multiplier.
+    # Conditional, additive, bounded recency, NEVER a multiplier.
     if _TIME_SENSITIVE.search(query):
         max_score = max(scores.values())
         now = time.time()
@@ -606,8 +606,8 @@ def _hydrate(db: sqlite3.Connection, key: str, include_superseded: bool) -> dict
 
 
 def fetch(db: sqlite3.Connection, item_id: str, context: bool = True) -> dict[str, Any] | None:
-    """Full content by id — for chunks, together with the neighbouring chunks
-    (context expansion on the winner, not the whole corpus — Cerebras pattern)."""
+    """Full content by id, for chunks, together with the neighbouring chunks
+    (context expansion on the winner, not the whole corpus, Cerebras pattern)."""
     typ, _, raw_id = item_id.partition(":")
     oid = int(raw_id)
     if typ == "chunk":
@@ -656,7 +656,7 @@ def timeline(
     kind: str | None = None,
     limit: int = 30,
 ) -> list[dict[str, Any]]:
-    """Chronological view — provides what semantic search does poorly."""
+    """Chronological view, provides what semantic search does poorly."""
     q = ("SELECT id, kind, title, occurred_at, duration_sec FROM recordings WHERE 1=1")
     args: list[Any] = []
     if start:
@@ -710,7 +710,7 @@ def save_assertion(
     source_chunk_id: int | None = None,
     confidence: float | None = None,
 ) -> int:
-    """Save a new assertion — embedding + FTS + vec in one transaction.
+    """Save a new assertion, embedding + FTS + vec in one transaction.
 
     `source` is mandatory and a closed set (poisoning defense): 'extracted'
     (extracted from a transcript by an LLM, with source_chunk_id),
@@ -758,7 +758,7 @@ def supersede_assertion(db: sqlite3.Connection, old_id: int, new_id: int) -> boo
 def similar_assertions(
     db: sqlite3.Connection, text: str, top_k: int = 3
 ) -> list[dict[str, Any]]:
-    """The LIVE assertions most similar to the text — for flagging suspected
+    """The LIVE assertions most similar to the text, for flagging suspected
     duplicates (the MCP write path runs without an LLM, only vector distance
     is available here)."""
     model_id, _, style = active_model(db)
@@ -784,7 +784,7 @@ def similar_assertions(
 def build_profile(db: sqlite3.Connection, max_per_type: int = 6) -> str:
     """~500-token "who am I / what is in flight" core from recent LIVE
     assertions. For session-start injection and the profile MCP tool."""
-    lines = ["# Lavox Memory — current picture", ""]
+    lines = ["# Lavox Memory: current picture", ""]
     label = {
         "decision": "Valid decisions",
         "commitment": "Open commitments",

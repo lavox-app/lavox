@@ -1,15 +1,15 @@
 #!/bin/bash
-# Lavox Hub — build + install (FULL BUNDLE flow).
+# Lavox Hub: build + install (FULL BUNDLE flow).
 #
 # ⚠️ CRITICAL RULES (lessons from 2026-07-03 + 2026-07-14):
-#   1. NEVER swap just the binary inside an existing .app — the bundle
+#   1. NEVER swap just the binary inside an existing .app, the bundle
 #      becomes inconsistent and the WebView stops rendering anything.
 #      ALWAYS: full `tauri build --bundles app` + FULL .app copy (cp -R)
-#      + xattr -cr + codesign with the STABLE cert (so the TCC permissions —
-#      Camera / Screen Recording / Input Monitoring — are preserved).
+#      + xattr -cr + codesign with the STABLE cert (so the TCC permissions,
+#      Camera / Screen Recording / Input Monitoring, are preserved).
 #      An ad-hoc-signed test build runs WITHOUT them → even the bar
 #      hover/buttons stop working!
-#   2. Keep the cargo target OUTSIDE iCloud (/tmp) — iCloud sync stalls
+#   2. Keep the cargo target OUTSIDE iCloud (/tmp), iCloud sync stalls
 #      file operations and doesn't persist the disk space either (it is
 #      cleared after reboot).
 #   3. models/*.bin may be iCloud-evicted (dataless) → the bundle dies with
@@ -17,14 +17,14 @@
 set -e
 cd "$(dirname "$0")" || exit 1
 
-# Default (self-signed "Hangar Dev") cert — the TCC permissions are bound to it.
+# Default (self-signed "Hangar Dev") cert, the TCC permissions are bound to it.
 # Signing identity for the installed app. TCC permissions (mic, screen) stick
-# to the signature — use a stable self-signed cert if you rebuild often
+# to the signature, use a stable self-signed cert if you rebuild often
 # (Keychain Access → Certificate Assistant → Code Signing). Falls back to
 # ad-hoc signing, which works but resets permissions on each reinstall.
 CERT="${LAVOX_CERT:-B32D83540C9FDEAD097FD55E589F9454677A8C1E}"
 if ! security find-identity -p codesigning 2>/dev/null | grep -q "$CERT"; then
-  echo "   (no signing cert found — using ad-hoc signature)"
+  echo "   (no signing cert found, using ad-hoc signature)"
   CERT="-"
 fi
 # ── Optional Developer ID path (Apple Developer Program) ──────────────────────
@@ -40,7 +40,7 @@ APP_SRC="$TARGET_DIR/release/bundle/macos/Lavox Hub.app"
 APP_DST="/Applications/Lavox Hub.app"
 
 echo "== 0/6 Prerequisites =="
-# Disk check: the release build + bundle needs ~6 GB (WITHOUT the model —
+# Disk check: the release build + bundle needs ~6 GB (WITHOUT the model;
 # the model lives in app support, NOT in the bundle; see below).
 FREE_GB=$(df -g / | awk 'NR==2 {print $4}')
 if [ "$FREE_GB" -lt 6 ]; then
@@ -50,18 +50,18 @@ fi
 # The whisper model is NOT bundled (iCloud kept evicting the repo's models/
 # copy → bundling kept re-downloading it forever). The model's permanent,
 # iCloud-FREE location: ~/Library/Application Support/live.plansmart.hangar/models
-# — find_model looks there first, and the Settings download button also
+# find_model looks there first, and the Settings download button also
 # downloads to that location.
 MODEL_DIR="$HOME/Library/Application Support/live.plansmart.hangar/models"
 if ! ls "$MODEL_DIR"/*.bin >/dev/null 2>&1; then
-  echo "⚠️  No model in $MODEL_DIR — on first launch the app downloads it"
+  echo "⚠️  No model in $MODEL_DIR, on first launch the app downloads it"
   echo "    via Settings → Model → Download (1.6 GB)."
 fi
 echo "   ✓ disk ok"
 
 # Google Calendar integration: the desktop OAuth client is baked in AT COMPILE
 # TIME (gauth.rs option_env!). Without it the build succeeds, but Settings
-# will report the calendar as unavailable — hence the loud warning here.
+# will report the calendar as unavailable, hence the loud warning here.
 #
 # Recommended launch (keeps the secret out of shell history). MIND the two
 # parameters: the Lavox secrets live under the `/lavox` PATH (not the project
@@ -70,7 +70,7 @@ echo "   ✓ disk ok"
 # or manually: export LAVOX_DESKTOP_CLIENT_ID=... LAVOX_DESKTOP_CLIENT_SECRET=...
 INFISICAL_HINT="infisical run --env=dev --path=/lavox -- ./build-and-install.command"
 if [ -n "$LAVOX_DESKTOP_CLIENT_ID" ] && [ -n "$LAVOX_DESKTOP_CLIENT_SECRET" ]; then
-  echo "   ✓ Google desktop client present (id ends in: ...${LAVOX_DESKTOP_CLIENT_ID: -6}) — calendar will be wired in"
+  echo "   ✓ Google desktop client present (id ends in: ...${LAVOX_DESKTOP_CLIENT_ID: -6}), calendar will be wired in"
 else
   echo "   ⚠️  LAVOX_DESKTOP_CLIENT_ID/SECRET not in the environment."
   echo "      The build continues, but CALENDAR INTEGRATION IS LEFT OUT of this build."
@@ -81,8 +81,8 @@ echo "== 1/5 Frontend build (vite) =="
 node ./node_modules/vite/bin/vite.js build
 
 echo "== 2/5 Tauri bundle build (local target: $TARGET_DIR) =="
-# beforeBuildCommand is empty in tauri.conf — the vite build already ran above
-# (beforeBuildCommand throws a spurious exit error in a piped shell — tauri-cli quirk).
+# beforeBuildCommand is empty in tauri.conf, the vite build already ran above
+# (beforeBuildCommand throws a spurious exit error in a piped shell, tauri-cli quirk).
 CARGO_TARGET_DIR="$TARGET_DIR" MACOSX_DEPLOYMENT_TARGET=13.0 \
   pnpm tauri build --bundles app
 
@@ -100,7 +100,7 @@ if [ -n "${LAVOX_SIGN_IDENTITY:-}" ]; then
   xattr -cr "$APP_DST"
   # Sign inside-out: FIRST the embedded Mach-O helper (syscap),
   # THEN the full .app. --deep is INTENTIONALLY absent: Apple deprecated it,
-  # and it would overwrite the helper's separate signature — signing
+  # and it would overwrite the helper's separate signature, signing
   # inside-out makes it unnecessary anyway.
   # (If notarization ever complains about an unsigned embedded dylib,
   # sign it separately here too, BEFORE signing the .app.)
@@ -122,13 +122,13 @@ if [ -n "${LAVOX_SIGN_IDENTITY:-}" ]; then
       --key-id "$LAVOX_NOTARY_KEY_ID" \
       --issuer "$LAVOX_NOTARY_KEY_ISSUER" \
       --wait
-    # The staple lands on the app in /Applications — so the --release zip
+    # The staple lands on the app in /Applications, so the --release zip
     # (below) is built from the FINAL, stapled app.
     xcrun stapler staple "$APP_DST"
     rm -rf "$NOTARY_STAGE"
     echo "   ✓ notarized + stapled"
   else
-    echo "   ⚠️  LAVOX_NOTARY_KEY_ID/ISSUER/PATH not in the environment —"
+    echo "   ⚠️  LAVOX_NOTARY_KEY_ID/ISSUER/PATH not in the environment;"
     echo "      the package is built SIGNED but NOT NOTARIZED."
     echo "      (On another machine Gatekeeper may object on first launch.)"
   fi
@@ -141,7 +141,7 @@ fi
 echo "== 5/5 Launch =="
 open "$APP_DST"
 echo ""
-echo "== ✅ DONE — full bundle installed and relaunched =="
+echo "== ✅ DONE, full bundle installed and relaunched =="
 echo "(you can close this window)"
 
 # ── Optional release: copy the finished, SIGNED .app up to the VPS ────────────

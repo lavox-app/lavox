@@ -1,21 +1,21 @@
 """
-Lavox accounts — users, workspaces, membership, API tokens.
+Lavox accounts: users, workspaces, membership, API tokens.
 
 OPT-IN: the module is only active when LAVOX_MULTI_TENANT=1 AND LAVOX_PG_DSN
-is set. DISABLED by default — self-hosted/local installations thus keep
+is set. DISABLED by default, self-hosted/local installations thus keep
 working exactly as before (single-user mode, no registration, no login).
 This is the free tier promise: Lavox running on your own machine never
 requires an account.
 
 In cloud mode (multi-tenant), however, every request is bound to a user and
-a workspace, and the server checks the membership — without this, anyone
+a workspace, and the server checks the membership, without this, anyone
 could request any workspace's data by rewriting the X-Workspace-Id header.
 
 Env:
   LAVOX_MULTI_TENANT=1       enables the module (otherwise everything stays as before)
   LAVOX_PG_DSN               the same Postgres that meetings.py uses
 
-Password: stdlib hashlib.scrypt (memory-hard KDF) — no new dependency.
+Password: stdlib hashlib.scrypt (memory-hard KDF), no new dependency.
 Token: opaque random string; the DB stores only its SHA-256 digest, so a
 table leak yields no usable token. Revocable, and the same mechanism is
 used by the webapp and the Lavox Hub.
@@ -36,7 +36,7 @@ from psycopg.rows import dict_row
 PG_DSN = os.environ.get("LAVOX_PG_DSN", "")
 MULTI_TENANT = os.environ.get("LAVOX_MULTI_TENANT", "") == "1"
 
-# The workspace identifier ends up in R2 keys and directory names — it must
+# The workspace identifier ends up in R2 keys and directory names, it must
 # match the rules of diarize._WS_RE: [A-Za-z0-9_-], max 64.
 _WS_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -145,7 +145,7 @@ def create_pairing_code(user_id: str, workspace_id: str) -> dict[str, Any]:
 
 
 def claim_pairing_code(code: str) -> dict[str, Any] | None:
-    """Called by the Hub (WITHOUT auth — the code itself is the secret).
+    """Called by the Hub (WITHOUT auth, the code itself is the secret).
     Redeems it for a device token. The code is single-use and expires; None
     if invalid/expired/already claimed."""
     code = (code or "").strip().upper()
@@ -203,7 +203,7 @@ def init_schema() -> None:
 
 
 def _hash_password(password: str) -> str:
-    """Format: scrypt$n$r$p$salt_hex$dk_hex — the parameters are embedded,
+    """Format: scrypt$n$r$p$salt_hex$dk_hex, the parameters are embedded,
     so the settings can be raised without making old hashes unverifiable."""
     salt = secrets.token_bytes(16)
     dk = hashlib.scrypt(
@@ -258,7 +258,7 @@ def _needs_rehash(stored: str) -> bool:
 # not reveal whether the given e-mail exists (user enumeration).
 #
 # LAZY, deliberately: computing the hash costs ~64 MiB and several hundred ms.
-# Computed at module level it would run on EVERY startup — including
+# Computed at module level it would run on EVERY startup, including
 # self-hosted installations where the account layer is never active. This way
 # it is only produced on the first real login attempt.
 _DUMMY_HASH_CACHE: str | None = None
@@ -379,7 +379,7 @@ def login(email: str, password: str, kind: str = "web") -> dict[str, Any] | None
         if not _verify_password(password or "", row["password_hash"]):
             return None
 
-        # If the hash was produced with weaker parameters, silently rehash —
+        # If the hash was produced with weaker parameters, silently rehash,
         # so raising the settings also applies retroactively.
         if _needs_rehash(row["password_hash"]):
             conn.execute(
@@ -457,7 +457,7 @@ def upsert_oauth_user(
 
     The provider has already proven ownership of the e-mail, so there is no
     password here. If an account already belongs to the e-mail address, we
-    return it (password login and social login are the SAME account) —
+    return it (password login and social login are the SAME account);
     otherwise we create one with the usual personal workspace.
 
     In that case `password_hash` is a never-matching sentinel, so password
@@ -515,7 +515,7 @@ def user_by_id(user_id: str) -> dict[str, Any] | None:
     """User + their workspaces by identifier.
 
     Used by the webapp's service call: the webapp authenticates itself with
-    the service key and specifies WHO the user is in a header — so no
+    the service key and specifies WHO the user is in a header, so no
     per-user token has to be placed into the browser-accessible session.
     """
     if not available() or not user_id:

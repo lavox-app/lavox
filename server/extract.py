@@ -1,8 +1,8 @@
-"""Lavox Memory — extraction layer (M1): typed assertions from speech.
+"""Lavox Memory extraction layer (M1): typed assertions from speech.
 
 An LLM extracts durable assertions from the recording transcript (decision /
 fact / commitment / preference / task); for decisions it also captures the
-REJECTED ALTERNATIVES and the reasoning — this is the core of the system,
+REJECTED ALTERNATIVES and the reasoning, this is the core of the system,
 something no competitor on the market does (ADR from your voice).
 
 PRINCIPLES (from the research measurements):
@@ -11,7 +11,7 @@ PRINCIPLES (from the research measurements):
   (provenance).
 - Write-time conflict resolution: each new assertion is confronted with the
   similar LIVE assertions; if it contradicts one about the same subject, the
-  old one enters the supersedes chain (invalidated_at + superseded_by) —
+  old one enters the supersedes chain (invalidated_at + superseded_by);
   NOTHING is ever deleted.
 - Extraction is OPTIONAL: without LAVOX_LLM_KEY the system still works in a
   degraded mode (the verbatim layer searches on its own). No forced LLM.
@@ -36,7 +36,7 @@ import memory
 LLM_KEY = os.environ.get("LAVOX_LLM_KEY", "")
 LLM_MODEL = os.environ.get("LAVOX_LLM_MODEL", "anthropic/claude-haiku-4-5")
 # Any OpenAI-compatible chat-completions endpoint can be used (Ollama, vLLM,
-# OpenAI, ...) — the default is OpenRouter.
+# OpenAI, ...), the default is OpenRouter.
 LLM_URL = os.environ.get(
     "LAVOX_LLM_URL", "https://openrouter.ai/api/v1/chat/completions"
 )
@@ -44,7 +44,7 @@ LLM_URL = os.environ.get(
 MAX_ASSERTIONS = 12
 MAX_TRANSCRIPT_CHARS = 180_000   # fits comfortably into the haiku context
 # vec0 distance threshold for "might be about the same thing" candidates.
-# For normalized vectors L2² = 2−2·cos; 0.9 ≈ cos 0.55 — a wide net on
+# For normalized vectors L2² = 2−2·cos; 0.9 ≈ cos 0.55, a wide net on
 # purpose, since the final verdict is made by the LLM anyway.
 SIMILAR_DIST_THRESHOLD = 0.9
 
@@ -123,7 +123,7 @@ def _transcript_text(db, recording_id: str) -> str:
 
 def _anchor_quote(db, recording_id: str, quote: str) -> int | None:
     """Anchor the quote to its source chunk. Provenance is a mandatory
-    principle — if the exact passage is not found (the model fixed the
+    principle, if the exact passage is not found (the model fixed the
     spelling), fall back via FTS to the best chunk within the same
     recording."""
     if not quote:
@@ -181,7 +181,7 @@ def _reconcile(db, new_text: str, new_vec: bytes, model_tag: str) -> tuple[str, 
 def extract_recording(db, recording_id: str, verbose: bool = True) -> dict[str, Any]:
     """Extract one recording: LLM → assertions → reconcile → save."""
     if not LLM_KEY:
-        return {"error": "LAVOX_LLM_KEY is not set — extraction skipped"}
+        return {"error": "LAVOX_LLM_KEY is not set; extraction skipped"}
 
     rec = db.execute(
         "SELECT id, kind, title, occurred_at, meta FROM recordings WHERE id=?",

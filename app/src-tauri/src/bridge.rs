@@ -1,4 +1,4 @@
-// LAVOX Meet Bridge — localhost HTTP listener for Chrome extension signals.
+// Lavox Meet Bridge: localhost HTTP listener for Chrome extension signals.
 // The extension POSTs here from the meet.google.com tab when the user joins/
 // leaves a meeting → the overlay pill reacts instantly (record prompt / auto-rec).
 //
@@ -17,7 +17,7 @@ use tauri::Emitter;
 
 const PORT: u16 = 5192;
 
-/// Time (unix ms) and kind of the last extension event — Settings uses this to
+/// Time (unix ms) and kind of the last extension event, Settings uses this to
 /// show the user whether the Meet extension is actually talking to the app.
 static LAST_EVENT_MS: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
 static LAST_EVENT_KIND: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
@@ -55,7 +55,7 @@ fn origin_allowed(origin: Option<&str>, path: &str) -> bool {
     o.starts_with("chrome-extension://") && (path == "/lavox/meeting" || path == "/lavox/captions")
 }
 
-/// Live buffer of Meet CC captions — the extension fills it continuously,
+/// Live buffer of Meet CC captions, the extension fills it continuously,
 /// stop_meeting_record drains it into the recording's folder (for fusion).
 #[derive(serde::Deserialize, serde::Serialize, Clone, Debug)]
 pub struct CaptionEvent {
@@ -112,7 +112,7 @@ pub fn start(app: tauri::AppHandle) {
         for stream in listener.incoming() {
             let Ok(stream) = stream else { continue };
             let app = app.clone();
-            // Requests are small and rare — handle each on its own thread, simply.
+            // Requests are small and rare, handle each on its own thread, simply.
             std::thread::spawn(move || {
                 let _ = handle(stream, &app);
             });
@@ -159,7 +159,7 @@ fn handle(stream: std::net::TcpStream, app: &tauri::AppHandle) -> std::io::Resul
     // From here on the Origin is allowed → echo it in the CORS header.
     let cors = origin.as_deref();
 
-    // CORS preflight — sent by the content script's / dashboard's fetch.
+    // CORS preflight, sent by the content script's / dashboard's fetch.
     if method == "OPTIONS" {
         return respond(&mut out, 204, "", cors);
     }
@@ -203,7 +203,7 @@ fn handle(stream: std::net::TcpStream, app: &tauri::AppHandle) -> std::io::Resul
         return respond(&mut out, 404, "not found", cors);
     }
 
-    // ── Meet CC captions from the extension — live buffer for fusion ──
+    // ── Meet CC captions from the extension, live buffer for fusion ──
     if method == "POST" && path == "/lavox/captions" {
         let mut body = vec![0u8; content_length.min(262_144)];
         reader.read_exact(&mut body)?;
@@ -227,7 +227,7 @@ fn handle(stream: std::net::TcpStream, app: &tauri::AppHandle) -> std::io::Resul
         return respond(&mut out, 404, "not found", cors);
     }
 
-    // Body (max 64 KB — comfortably fits the participants list too).
+    // Body (max 64 KB, comfortably fits the participants list too).
     let mut body = vec![0u8; content_length.min(65536)];
     reader.read_exact(&mut body)?;
 
@@ -257,7 +257,7 @@ fn handle(stream: std::net::TcpStream, app: &tauri::AppHandle) -> std::io::Resul
     }
 }
 
-/// CORS headers: only for an allowed Origin, echoing it — no wildcard.
+/// CORS headers: only for an allowed Origin, echoing it, no wildcard.
 fn cors_headers(cors: Option<&str>) -> String {
     match cors {
         Some(o) => format!(

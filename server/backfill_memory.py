@@ -1,11 +1,11 @@
-"""Lavox Memory — backfill: load existing meetings into the memory.
+"""Lavox Memory backfill: load existing meetings into the memory.
 
 Input: JSONL (one meeting per line), exported from the VPS Postgres:
   {"id","title","kind","occurred_at","duration_sec","participants":[],
    "transcript":[{"start","end","text","speaker"}], "speakers":[{"id","label"}]}
 
 Speaker identifiers (spk_xxx / SPEAKER_01) are resolved to the labels in the
-speakers table so the chunk headers contain names — the value of context
+speakers table so the chunk headers contain names, the value of context
 injection hinges precisely on searchable names.
 
 Usage:

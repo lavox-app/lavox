@@ -1,4 +1,4 @@
-// Main window — dashboard-like layout: left sidebar (4 modes + Settings) +
+// Main window. Dashboard-like layout: left sidebar (4 modes + Settings) +
 // right main-content with the active mode's view. Shared state (model,
 // microphones) is loaded here once and passed down to the views.
 import { useState, useEffect } from "react";

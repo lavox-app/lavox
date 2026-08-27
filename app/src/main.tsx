@@ -8,7 +8,7 @@ import "./App.css";
 
 // ── ONE-TIME MIGRATION: move the old "hangar-*" localStorage keys to
 // "lavox-*" (Lavox Hub rename, 2026-07-23). The old key is deleted, the
-// value is kept — API key, theme, calendar auth, every setting survives.
+// value is kept, API key, theme, calendar auth, every setting survives.
 try {
   for (const key of Object.keys(localStorage)) {
     if (key.startsWith("hangar-")) {
@@ -20,7 +20,7 @@ try {
     }
   }
 } catch {
-  /* localStorage unavailable — nothing to do */
+  /* localStorage unavailable, nothing to do */
 }
 
 // Windows are distinguished by URL parameter:

@@ -8,11 +8,11 @@ fn main() {
     println!("cargo:rerun-if-env-changed=LAVOX_DESKTOP_CLIENT_SECRET");
     // helpers/syscap: Swift helper for system-audio capture (ScreenCaptureKit).
     // The compiled binary is not under version control, but tauri.conf expects
-    // it as a resource — if it is missing or the source is newer, it is built
+    // it as a resource, if it is missing or the source is newer, it is built
     // here so a plain `cargo build` / `cargo test` works on a fresh clone. We
     // compile to a temp file and rename atomically, so two parallel builds
     // (e.g. rust-analyzer with its own target dir) cannot write a broken
-    // Mach-O to the same path. Skipped on non-macOS targets — there the Tauri
+    // Mach-O to the same path. Skipped on non-macOS targets, there the Tauri
     // bundler gives a meaningful error.
     println!("cargo:rerun-if-changed=helpers/syscap.swift");
     println!("cargo:rerun-if-changed=helpers/syscap");

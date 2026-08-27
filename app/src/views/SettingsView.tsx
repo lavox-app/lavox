@@ -2,8 +2,8 @@ import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { Settings as SettingsIcon, Calendar, Mic, Sparkles, Globe } from "lucide-react";
-// NOTE: t() keys are Hungarian source strings (gettext-style, see lib/i18n.ts)
-// — keep them byte-identical; the English UI copy lives in lib/i18n-en.ts.
+// NOTE: t() keys are Hungarian source strings (gettext-style, see lib/i18n.ts).
+// Keep them byte-identical; the English UI copy lives in lib/i18n-en.ts.
 import { t, getUiLang, setUiLang, type UiLang } from "../lib/i18n";
 import {
   getHotkey, setHotkey, comboFromEvent, formatCombo,
@@ -23,7 +23,7 @@ interface Props {
 }
 
 export function SettingsView({ modelPath, mics }: Props) {
-  // Calendar status comes from the Rust token store (not localStorage) — the
+  // Calendar status comes from the Rust token store (not localStorage), the
   // refresh token lives there, and the poller refreshes on its own.
   const [cal, setCal] = useState<CalendarStatus>({ configured: false, connected: false, email: null });
   const [autoRecord, setAutoRecord] = useState(loadAutoRecord);
@@ -44,7 +44,7 @@ export function SettingsView({ modelPath, mics }: Props) {
   const [hotkey, setHotkeyState] = useState<HotkeyCombo | null>(null);
   const [capturing, setCapturing] = useState(false);
 
-  // Model download (first-run) — follows Rust's "model-download-progress" event.
+  // Model download (first-run), follows Rust's "model-download-progress" event.
   const [dlActive, setDlActive] = useState(false);
   const [dlPercent, setDlPercent] = useState(0);
   const [dlError, setDlError] = useState("");

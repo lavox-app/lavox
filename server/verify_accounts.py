@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Account-layer verification — the Phase 1 acceptance test.
+Account-layer verification: the Phase 1 acceptance test.
 
 Usage (against any Postgres that is NOT production data):
 
@@ -39,7 +39,7 @@ def check(label: str, ok: bool, extra: str = "") -> None:
     mark = "PASS" if ok else "FAIL"
     if not ok:
         FAIL += 1
-    print(f"[{mark}] {label}{(' — ' + extra) if extra else ''}")
+    print(f"[{mark}] {label}{(': ' + extra) if extra else ''}")
 
 
 def main() -> int:
@@ -68,7 +68,7 @@ def main() -> int:
         check("the user owns their own workspace",
               a["workspaces"][0]["role"] == "owner")
 
-        # 3 — the password is not stored recoverably
+        # 3: the password is not stored recoverably
         with accounts._conn() as conn:
             row = conn.execute(
                 "SELECT password_hash FROM users WHERE email=%s", (email_a,)
@@ -78,20 +78,20 @@ def main() -> int:
               pw_a not in stored and stored.startswith("scrypt$"),
               f"stored format: {stored.split('$')[0]}")
 
-        # 4 — login
+        # 4: login
         check("logs in with the correct password", accounts.login(email_a, pw_a) is not None)
         check("does NOT log in with a wrong password", accounts.login(email_a, "rossz-jelszo") is None)
         check("does NOT log in with an unknown e-mail",
               accounts.login(f"nincs-{suffix}@example.com", pw_a) is None)
 
-        # 5 — token resolution
+        # 5: token resolution
         principal = accounts.user_by_token(a["token"])
         check("token resolves the user",
               principal is not None and principal["user"]["email"] == email_a)
         check("a fake token resolves nothing",
               accounts.user_by_token("nem-letezo-token") is None)
 
-        # 6 — IDOR: the crux
+        # 6: IDOR, the crux
         ws_a = a["workspaces"][0]["id"]
         ws_b = b["workspaces"][0]["id"]
         check("A is a member of their OWN workspace",
@@ -102,7 +102,7 @@ def main() -> int:
         check("invalid workspace identifier rejected",
               not accounts.is_member(a["user"]["id"], "../../etc/passwd"))
 
-        # 7-8 — input validation
+        # 7-8: input validation
         try:
             accounts.register(email_a, "Masik-Jelszo-789", "Duplikalt")
             check("duplicate e-mail rejected", False, "did not raise an error")
@@ -115,13 +115,13 @@ def main() -> int:
         except ValueError:
             check("short password rejected", True)
 
-        # 9 — revocation
+        # 9: revocation
         accounts.revoke_token(a["token"])
         check("a revoked token no longer resolves",
               accounts.user_by_token(a["token"]) is None)
 
     finally:
-        # cleanup — workspace/membership/token go via CASCADE
+        # cleanup: workspace/membership/token go via CASCADE
         if created:
             with accounts._conn() as conn:
                 conn.execute(

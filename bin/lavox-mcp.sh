@@ -2,8 +2,8 @@
 # Lavox memory MCP launcher.
 # Keeps a slim, self-managed venv in ~/Lavox/mcp-venv so the plugin works
 # without the full transcription stack. Override with:
-#   LAVOX_SERVER_DIR — where server/mcp_memory.py lives
-#   LAVOX_MCP_VENV   — venv location
+#   LAVOX_SERVER_DIR: where server/mcp_memory.py lives
+#   LAVOX_MCP_VENV:   venv location
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SERVER_DIR="${LAVOX_SERVER_DIR:-$here/server}"

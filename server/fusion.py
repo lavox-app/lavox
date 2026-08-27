@@ -7,7 +7,7 @@ Two independent, fallible sources:
     (weaker), and the caption appears DELAYED relative to the speech.
 
 The fusion principle: the name is decided by time proximity AND text context
-together — where the two sources' text matches (fuzzy), the CC name applies
+together, where the two sources' text matches (fuzzy), the CC name applies
 with high weight; mere time overlap is only a weak vote. Majority name
 assignment at the cluster level (which automatically merges over-fragmented
 clusters), then segment-level override on a strong individual text match.
@@ -20,7 +20,7 @@ import re
 import unicodedata
 from collections import defaultdict
 
-# The CC typically appears AFTER the speech — hence the asymmetric search window.
+# The CC typically appears AFTER the speech, hence the asymmetric search window.
 WINDOW_BEFORE = 4.0   # s: a caption this far before the segment start still counts
 WINDOW_AFTER = 10.0   # s: a caption this far after the segment end still counts
 CLUSTER_MIN_SCORE = 1.2   # total votes required to rename a cluster
@@ -71,7 +71,7 @@ def fuse_captions(segments: list[dict], speakers: list[dict] | None, captions: l
     speakers: [{id, label, is_me}] or None
     captions: [{t: rel_s, type: "caption"|"active-speaker", name, text}]
 
-    Returns: (segments, speakers, stats) — speaker fields rewritten where the
+    Returns: (segments, speakers, stats), speaker fields rewritten where the
     fusion found a name; unidentified clusters remain unchanged.
     """
     cap_evs = [c for c in captions if c.get("type") == "caption" and (c.get("text") or "").strip()]
@@ -80,7 +80,7 @@ def fuse_captions(segments: list[dict], speakers: list[dict] | None, captions: l
         return segments, speakers, {"captions_used": 0, "named_segments": 0}
 
     # ACTIVE-SPEAKER-ONLY mode: Meet's "X is speaking" signals arrive from the
-    # extension even WITHOUT captions enabled — so there is a name source even
+    # extension even WITHOUT captions enabled, so there is a name source even
     # without subtitles. In that case there is no text evidence, only time
     # overlap, so the cluster threshold is lower, but the winner-margin rule
     # (never fabricate a name) stays.
@@ -108,7 +108,7 @@ def fuse_captions(segments: list[dict], speakers: list[dict] | None, captions: l
         seg_votes.append(dict(votes))
         seg_best_sim.append(dict(best_sim))
 
-    # 2) Cluster → name (majority, with margin) — merges fragmented clusters,
+    # 2) Cluster → name (majority, with margin), merges fragmented clusters,
     #    since multiple clusters may map to the same name.
     cluster_votes: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
     for seg, votes in zip(segments, seg_votes):
@@ -121,7 +121,7 @@ def fuse_captions(segments: list[dict], speakers: list[dict] | None, captions: l
         if not ranked or ranked[0][1] < cluster_min_score:
             continue
         if len(ranked) > 1 and ranked[0][1] < CLUSTER_MIN_MARGIN * ranked[1][1]:
-            continue  # no clear winner — better not to fabricate a name
+            continue  # no clear winner, better not to fabricate a name
         cluster_name[cl] = ranked[0][0]
 
     # 3) Segment-level assignment + strong individual override.

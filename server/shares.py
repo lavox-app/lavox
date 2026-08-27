@@ -1,4 +1,4 @@
-"""Shareable meeting links — viewing without an account.
+"""Shareable meeting links: viewing without an account.
 
 The real value of the Personal tier: you record a meeting, send a link, and
 the other party views the transcript and plays the recording without
@@ -6,15 +6,15 @@ registering.
 
 SECURITY PRINCIPLES (this is the ONLY unauthenticated data endpoint):
 
-1. The token itself is the secret — `secrets.token_urlsafe(32)` (~256 bits).
+1. The token itself is the secret, `secrets.token_urlsafe(32)` (~256 bits).
    The database stores ONLY its SHA-256 digest, just like api_tokens: a DB
    leak therefore yields no working links.
 2. The public projection is RESTRICTED (`_PUBLIC_FIELDS`). `workspace`,
    `meet_code`, `participants`, `speaker_sources`, `evaluation`,
-   `screenshots` NEVER go out — these are internal or third-party data.
+   `screenshots` NEVER go out, these are internal or third-party data.
 3. Revocable (`revoked_at`) and optionally expiring (`expires_at`).
 4. Against guessing there is an IP-based rate limit on the caller side (app.py).
-5. Viewing modifies nothing on the meeting — it only bumps a counter.
+5. Viewing modifies nothing on the meeting, it only bumps a counter.
 """
 
 from __future__ import annotations
@@ -87,7 +87,7 @@ def create_or_get_share(
 
     IMPORTANT: if a live share already exists, the RAW token CANNOT be
     recovered (we only store its digest). In that case `token=None` is
-    returned with an `exists=True` flag — from this the caller knows the
+    returned with an `exists=True` flag, from this the caller knows the
     link has already been issued, and if a new one is needed, the old one
     must be revoked first.
     """
@@ -171,10 +171,10 @@ def share_status(workspace: str, meeting_id: str) -> dict[str, Any] | None:
 
 
 def resolve_share(token: str) -> dict[str, Any] | None:
-    """PUBLIC resolution — the RESTRICTED view given to the link holder.
+    """PUBLIC resolution, the RESTRICTED view given to the link holder.
 
     None in every failure case (unknown/revoked/expired token, deleted
-    meeting) — the caller returns a uniform 404 so the response does not
+    meeting), the caller returns a uniform 404 so the response does not
     reveal which case occurred.
     """
     if not token or len(token) < 20:
@@ -203,7 +203,7 @@ def resolve_share(token: str) -> dict[str, Any] | None:
     if full is None:  # the meeting has been deleted since
         return None
 
-    # RESTRICTED projection — nothing outside the whitelist goes out.
+    # RESTRICTED projection, nothing outside the whitelist goes out.
     out: dict[str, Any] = {k: full.get(k) for k in _PUBLIC_FIELDS}
     # The playback URL is generated with a SHORTER lifetime than in the
     # logged-in view: an issued presigned URL keeps working until its expiry

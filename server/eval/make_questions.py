@@ -3,7 +3,7 @@
 
 Reads assertions (decisions first, superseded pairs specially) and chunks,
 asks an LLM to write natural questions a user would actually ask, with the
-expected evidence substrings. Output: eval/questions.jsonl — REVIEW BY HAND.
+expected evidence substrings. Output: eval/questions.jsonl, REVIEW BY HAND.
 
 Run:  LAVOX_LLM_KEY=... python3 eval/make_questions.py
 """
@@ -29,9 +29,9 @@ OUT = Path(__file__).parent / "questions.jsonl"
 SYSTEM = """You create evaluation questions for a personal spoken-memory search system.
 Given a stored assertion (and its verbatim source), write ONE natural question the
 memory's owner would ask weeks later, IN THE SAME LANGUAGE as the assertion.
-Do NOT reuse the assertion's exact wording — ask the way a person naturally would
+Do NOT reuse the assertion's exact wording, ask the way a person naturally would
 (synonyms, different angle). Also pick 1-3 SHORT evidence substrings (verbatim,
-5-30 chars each) that a correct search result must contain — take them from the
+5-30 chars each) that a correct search result must contain, take them from the
 assertion text or the quote, prefer distinctive proper nouns or numbers.
 Return STRICT JSON: {"question": "...", "evidence": ["...", "..."]}"""
 
@@ -74,7 +74,7 @@ def main() -> None:
     for row in rows:
         aid, kind, text, data, superseded_by, invalidated, chunk_text = row
         is_superseded = bool(superseded_by or invalidated)
-        # cap: max ~40 kérdés, felülírtakból mindet visszük (ritka kincs)
+        # cap: at most ~40 questions; superseded ones are all kept (rare and valuable)
         if not is_superseded:
             if seen_current >= 32:
                 continue
@@ -108,7 +108,7 @@ def main() -> None:
         "\n".join(json.dumps(q, ensure_ascii=False) for q in questions) + "\n",
         encoding="utf-8",
     )
-    print(f"\n{len(questions)} kérdés → {OUT} — KÉZI ÁTNÉZÉS AJÁNLOTT")
+    print(f"\n{len(questions)} questions → {OUT}. REVIEW BY HAND.")
 
 
 if __name__ == "__main__":

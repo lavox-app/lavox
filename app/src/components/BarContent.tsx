@@ -1,10 +1,10 @@
-// Shared bar content — BOTH the NotchShell and the PillShell render this, so the
+// Shared bar content: BOTH the NotchShell and the PillShell render this, so the
 // button set and the behavior are guaranteed identical (one source, cannot diverge again).
 // Uses the existing `ni-*` glass styles: the pill background is the same dark
 // smoked glass as the notch's, so the styles are correct in both shells.
 //
-// NOTE: t() keys are Hungarian source strings (gettext-style, see lib/i18n.ts)
-// — keep them byte-identical; the English UI copy lives in lib/i18n-en.ts.
+// NOTE: t() keys are Hungarian source strings (gettext-style, see lib/i18n.ts).
+// Keep them byte-identical; the English UI copy lives in lib/i18n-en.ts.
 import { motion } from "framer-motion";
 import {
   Mic, Square, Globe, StickyNote, Users, Video, Check,
@@ -76,7 +76,7 @@ function IconBtn({
   );
 }
 
-/** The 5 direct action buttons — identical set and style in both shells. */
+/** The 5 direct action buttons, identical set and style in both shells. */
 function ActionButtons(p: BarContentProps) {
   return (
     <>
@@ -159,7 +159,7 @@ function VideoMenu(p: BarContentProps) {
 export function BarContent(props: BarContentProps) {
   const { phase, levels, meetPrompt, meetRec, fmtElapsed, videoMenu, onMic, onStartMeet, onDismissMeet, onStopMeet } = props;
 
-  // The video menu (when open) takes over EVERYTHING — start/stop/camera/mic/screen live here.
+  // The video menu (when open) takes over EVERYTHING, start/stop/camera/mic/screen live here.
   if (videoMenu) {
     return <VideoMenu {...props} />;
   }
@@ -222,7 +222,7 @@ export function BarContent(props: BarContentProps) {
   return <ActionButtons {...props} />;
 }
 
-/** The language/mic/screen sub-panel — can appear under either shell. */
+/** The language/mic/screen sub-panel, can appear under either shell. */
 export function BarPanel(props: BarContentProps) {
   const {
     panel, langs, languages, mics, displays, selectedMic, selectedDisplay,

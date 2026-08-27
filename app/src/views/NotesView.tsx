@@ -1,6 +1,6 @@
-// Notes view — the WORKING Lavox Notes surface in the main window.
+// Notes view: the WORKING Lavox Notes surface in the main window.
 // Notes are stored by the backend (get_notes); editing happens in the floating
-// notebook window (show_notebook) — this view is a list + entry point.
+// notebook window (show_notebook), this view is a list + entry point.
 // NOTE: t() keys are Hungarian source strings (gettext-style, see lib/i18n.ts).
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -43,7 +43,7 @@ export function NotesView() {
   useEffect(() => {
     const load = () => invoke<Note[]>("get_notes").then(setNotes).catch(() => {});
     load();
-    // The notebook window signals on every save — we refresh live.
+    // The notebook window signals on every save, we refresh live.
     const un = listen("notes-changed", load);
     return () => {
       un.then((f) => f()).catch(() => {});

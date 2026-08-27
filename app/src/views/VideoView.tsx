@@ -1,4 +1,4 @@
-// Video view — Loom-style personal recordings: screen + face bubble + audio.
+// Video view. Loom-style personal recordings: screen + face bubble + audio.
 // Created by the bar's Video button (🎥); this view plays screen.mov and
 // optionally requests a transcript too (captions/search). SEPARATE from
 // Meetings: here the VIDEO is the point (player), not the diarized transcript.
@@ -36,7 +36,7 @@ export function VideoView() {
   const refresh = useCallback(async () => {
     try {
       const list = await invoke<MeetingEntry[]>("list_meetings");
-      // ONLY the video recordings (kind=video) — meetings live on the Meeting tab.
+      // ONLY the video recordings (kind=video), meetings live on the Meeting tab.
       setVideos(list.filter((m) => m.kind === "video"));
     } catch (e) {
       setError(String(e));

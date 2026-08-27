@@ -2,14 +2,14 @@
 
 Deterministic (regex), LLM-free layer. Two signal types:
 
-  1. SELF-INTRODUCTION — the speaker names their OWN cluster:
+  1. SELF-INTRODUCTION, the speaker names their OWN cluster:
      "Kovács Péter vagyok", "itt Anna", "my name is John", "I'm Sarah"
-  2. ADDRESSING — gives a (weak) signal for the OTHER cluster: if right
+  2. ADDRESSING, gives a (weak) signal for the OTHER cluster: if right
      after "Ádám, mit gondolsz?" ("Ádám, what do you think?") a different
      cluster speaks, that cluster is probably Ádám.
 
 Safety rule: when a pool exists, a name may ONLY be assigned from the
-candidate pool (calendar attendees, Meet participant list) — so a mistyped
+candidate pool (calendar attendees, Meet participant list), so a mistyped
 or invented name structurally cannot get in. Without a pool, only
 self-introduction is active (at least it is the speaker's own claim);
 addressing is not.
@@ -28,12 +28,12 @@ import unicodedata
 # speaker named "Van Egy Demo"). re.IGNORECASE applies to the WHOLE pattern,
 # so putting it on the keyword (itt/én/my name is) would also destroy the
 # capitalization protection of the name part. Hence the case-insensitive
-# keyword and the case-sensitive name are matched SEPARATELY — see _kw()
+# keyword and the case-sensitive name are matched SEPARATELY, see _kw()
 # below, which makes only the keyword part ignorecase.
 #
 # The Hungarian accented letters in _NAME and the Hungarian keywords below
 # ("vagyok", "itt", "én") are functional data matched against Hungarian
-# transcripts — do not translate them.
+# transcripts, do not translate them.
 _NAME = r"([A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüű]+(?:\s+[A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüű]+){0,2})"
 
 
@@ -65,7 +65,7 @@ def _pool_match(name: str, pool: list[str] | None) -> str | None:
     """Aligns the extracted name to the candidate pool (accent/order tolerant).
 
     Without a pool the name is returned unchanged (we only call it that way
-    for self-introductions) — when a pool exists, ONLY a pool name may be
+    for self-introductions), when a pool exists, ONLY a pool name may be
     given out.
     """
     if pool is None:
@@ -93,7 +93,7 @@ def find_intro_votes(
         votes.setdefault(cluster, {})
         votes[cluster][name] = votes[cluster].get(name, 0.0) + w
 
-    # 1) Self-introduction — the speaker names their own cluster.
+    # 1) Self-introduction, the speaker names their own cluster.
     for seg in segments:
         if seg["start"] > INTRO_WINDOW_SEC:
             break
@@ -105,7 +105,7 @@ def find_intro_votes(
                 if name:
                     add(seg.get("speaker", ""), name, 2.0)
 
-    # 2) Addressing — only when a pool exists (too risky otherwise).
+    # 2) Addressing, only when a pool exists (too risky otherwise).
     if candidate_pool:
         for i, seg in enumerate(segments[:-1]):
             m = _ADDRESS_PATTERN.search(seg.get("text") or "")
@@ -134,7 +134,7 @@ def apply_intro_votes(
 ) -> tuple[list[dict] | None, dict]:
     """Writes the names derived from text signals onto the STILL UNNAMED clusters.
 
-    Only renames clusters with a generic label ("Speaker N") — it NEVER
+    Only renames clusters with a generic label ("Speaker N"), it NEVER
     overrides the result of higher layers (CC fusion, voice profile).
     Winner-margin rule: in doubtful cases it stays unnamed.
     """
@@ -144,7 +144,7 @@ def apply_intro_votes(
     renamed = 0
     for spk in speakers:
         if not _GENERIC.match((spk.get("label") or "").strip()):
-            continue  # already has a real name — leave it alone
+            continue  # already has a real name, leave it alone
         v = votes.get(spk["id"])
         if not v:
             continue

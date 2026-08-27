@@ -6,7 +6,7 @@
 //   1) IDLE = tiny, barely visible dark line at the top center (unobtrusive).
 //   2) HOVER = hovering the line smoothly unfolds the control bar (mode menu + label + mic).
 //   3) DICTATION = prominent "listening" feedback (waveform + red dot + glow),
-//      even without hover — also activated by the ⌃⇧Space (trigger-dictation) event.
+//      even without hover, also activated by the ⌃⇧Space (trigger-dictation) event.
 //   + Transcription: shimmer + "Transcribing…". Done: grows downward, shows the transcript.
 import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -18,8 +18,8 @@ import { BarContent, BarPanel, type BarContentProps, type BarPanelKind } from ".
 import { WAVE_BARS } from "./components/Waveform";
 import { DEFAULT_MODE, type ModeId } from "./modes";
 import { loadAutoRecord } from "./lib/calendar";
-// NOTE: t() keys are Hungarian source strings (gettext-style, see lib/i18n.ts)
-// — keep them byte-identical; the English UI copy lives in lib/i18n-en.ts.
+// NOTE: t() keys are Hungarian source strings (gettext-style, see lib/i18n.ts).
+// Keep them byte-identical; the English UI copy lives in lib/i18n-en.ts.
 import { t } from "./lib/i18n";
 import type { TranscriptResult } from "./lib/types";
 import "./Overlay.css";
@@ -27,7 +27,7 @@ import "./Overlay.css";
 // Event payload of the Meet Bridge (extension → Rust → here).
 type MeetInfo = { meetCode: string; title: string; participants: string[] };
 
-/** Lavox brand mark — descending lines + surface dot. The brand dot of the closed pill and the notch.
+/** Lavox brand mark, descending lines + surface dot. The brand dot of the closed pill and the notch.
  *  Consistent with the landing page, the sidebar and the store icon. */
 function LavoxMark({ size = 14 }: { size?: number }) {
   return (
@@ -52,7 +52,7 @@ interface NotchInfo {
   scale: number;
 }
 
-// The strip on each side of the notch (CSS px) — narrow, leaves room only for the dropdown.
+// The strip on each side of the notch (CSS px), narrow, leaves room only for the dropdown.
 const NOTCH_SIDE_W = 78;
 
 // Selectable languages (whisper ISO codes). Multiple enabled → auto-detect.
@@ -72,7 +72,7 @@ const PANEL_SPRING = { type: "spring" as const, stiffness: 240, damping: 28, mas
 const CONTENT_FADE = { duration: 0.14, ease: [0.22, 0.61, 0.36, 1] as const };
 
 // Logical window size for each state (set_pill_size is called with this).
-// The window is LARGER than the visible pill — the surrounding shadow/glow and
+// The window is LARGER than the visible pill, the surrounding shadow/glow and
 // the downward-opening menu FIT inside it (otherwise the window edge would clip
 // them). The pill sits slightly below the window top, centered (see .pill
 // margin-top + .pill-wrap).
@@ -88,7 +88,7 @@ const SIZES = {
 } as const;
 
 // 220ms grace period before the control bar collapses back to the line.
-// (Was 400ms — too "sticky"; this is enough to avoid closing on an
+// (Was 400ms, too "sticky"; this is enough to avoid closing on an
 // accidental mouse-out while keeping the interaction snappy.)
 const LEAVE_DELAY_MS = 220;
 
@@ -108,7 +108,7 @@ function Overlay() {
   const [hovered, setHovered] = useState(false);
   // Real-time microphone levels for the waveform (rolling buffer, newest at the end).
   const [levels, setLevels] = useState<number[]>(() => new Array(WAVE_BARS).fill(0));
-  // Open sub-panel (language / device pickers) — for the Wispr buttons.
+  // Open sub-panel (language / device pickers), for the Wispr buttons.
   const [panel, setPanel] = useState<BarPanelKind | null>(null);
   // Video control menu (opened by the 🎥 button; the bar footprint does not change).
   const [videoMenu, setVideoMenu] = useState(false);
@@ -117,7 +117,7 @@ function Overlay() {
   const [barDisplays, setBarDisplays] = useState<string[]>([]);
   const [selectedMic, setSelectedMic] = useState("");
   const [selectedDisplay, setSelectedDisplay] = useState(0);
-  // Whether the notebook window is FOCUSED — THIS decides the dictation routing. If
+  // Whether the notebook window is FOCUSED, THIS decides the dictation routing. If
   // you click into another app, the notebook loses focus → dictation goes there, not here.
   const [notebookFocused, setNotebookFocused] = useState(false);
   const notebookFocusedRef = useRef(false);
@@ -136,7 +136,7 @@ function Overlay() {
       unClosed.then((f) => f()).catch(() => {});
     };
   }, []);
-  // Enabled languages (ISO codes) — stored by the backend, used by transcribe.
+  // Enabled languages (ISO codes), stored by the backend, used by transcribe.
   const [langs, setLangs] = useState<string[]>([]);
   useEffect(() => {
     invoke<string[]>("get_languages").then(setLangs).catch(() => {});
@@ -159,7 +159,7 @@ function Overlay() {
   const meetRecRef = useRef<{ title: string; startedAt: number; kind: "meeting" | "video" } | null>(null);
   meetRecRef.current = meetRec;
 
-  // Auto-record from the BACKEND (auto_record.json) — survives a reinstall,
+  // Auto-record from the BACKEND (auto_record.json), survives a reinstall,
   // unlike localStorage. The meet-joined decision reads this ref.
   const autoRecordRef = useRef<boolean>(loadAutoRecord());
   useEffect(() => {
@@ -187,8 +187,8 @@ function Overlay() {
       setMeetRec({ title: info.title || info.meetCode || "Meeting", startedAt: Date.now(), kind: "meeting" });
     } catch (e) {
       const msg = String(e);
-      // "already running" — error string from the Rust
-      // backend, matched verbatim; do not translate.
+      // "already running" is the Rust backend's error string,
+      // matched verbatim; do not translate.
       if (msg.includes("already running")) {
         // desync guard: the backend is already recording → adopt its state
         setMeetRec({ title: info.title || "Meeting", startedAt: Date.now(), kind: "meeting" });
@@ -198,7 +198,7 @@ function Overlay() {
     }
   }, [notify]);
 
-  // Manual VIDEO recording from the bar — anytime, even without a meeting
+  // Manual VIDEO recording from the bar, anytime, even without a meeting
   // (screen + system audio + microphone, same machinery).
   const cameraOnRef = useRef(true);
   cameraOnRef.current = cameraOn;
@@ -225,7 +225,7 @@ function Overlay() {
     }
   }, [notify]);
 
-  // Manual MEETING recording from the bar — even WITHOUT the extension and calendar.
+  // Manual MEETING recording from the bar, even WITHOUT the extension and calendar.
   // (Previously a meeting only started on the Meet extension's signal or via
   // calendar auto-record; without either, Meeting mode couldn't be started.)
   const startMeetingManual = useCallback(async () => {
@@ -269,7 +269,7 @@ function Overlay() {
     invoke("set_recording_display", { index: i }).catch(() => {});
     setPanel(null);
   }, []);
-  // Face (camera bubble) on/off — shows/hides it live during recording.
+  // Face (camera bubble) on/off, shows/hides it live during recording.
   const toggleCamera = useCallback(() => {
     setCameraOn((prev) => {
       const next = !prev;
@@ -289,7 +289,7 @@ function Overlay() {
       const raw = await invoke<string>("stop_meeting_record", { title: rec.title });
       // Close the bubble AFTER the screen stop (keep it in until the last frame).
       await invoke("hide_camera_bubble").catch(() => {});
-      // JSON: { mic: path, system: path|null } — the old format (plain path) is also accepted
+      // JSON: { mic: path, system: path|null }, the old format (plain path) is also accepted
       let mic = raw;
       let system: string | null = null;
       try {
@@ -298,7 +298,7 @@ function Overlay() {
           mic = parsed.mic;
           system = parsed.system ?? null;
         }
-      } catch { /* plain path — old backend */ }
+      } catch { /* plain path, old backend */ }
       if (system) {
         notify(t("LAVOX — meeting mentve (2 sáv)"), `${t("Mikrofon + rendszerhang:")}\n${mic}\n${system}`);
       } else {
@@ -307,7 +307,7 @@ function Overlay() {
           `${mic}\n${t("A többiek hangjához engedélyezd: Rendszerbeállítások → Adatvédelem → Képernyő- és rendszerhang-felvétel → Lavox Hub")}`,
         );
       }
-      // Automatic transcript after saving — on error, a LOUD notification; it
+      // Automatic transcript after saving, on error, a LOUD notification; it
       // must never die silently. rec_id is the recording folder name from the mic path.
       const recId = mic.split("/").slice(-2, -1)[0];
       if (recId) {
@@ -337,7 +337,7 @@ function Overlay() {
     });
     const unLeft = listen<MeetInfo>("meet-left", () => {
       setMeetPrompt(null);
-      // Only stop the MEETING recording on leave — a manual video keeps going.
+      // Only stop the MEETING recording on leave, a manual video keeps going.
       if (meetRecRef.current?.kind === "meeting") stopMeetRec();
     });
     return () => {
@@ -359,7 +359,7 @@ function Overlay() {
 
   // Notch info (Dynamic Island-style compact layout). Fetched at startup; then
   // updated EVENT-DRIVEN: the backend's display-reconfiguration callback (monitor
-  // connects/disconnects, resolution/scaling changes) sends "notch-refreshed" —
+  // connects/disconnects, resolution/scaling changes) sends "notch-refreshed",
   // no polling.
   const [notch, setNotch] = useState<NotchInfo | null>(null);
   useEffect(() => {
@@ -434,7 +434,7 @@ function Overlay() {
   }
 
   // The frontend sizes the window (Rust aligns it top-center). We also signal
-  // whether we are idle — only then does the pill follow the cursor across
+  // whether we are idle, only then does the pill follow the cursor across
   // screens (in an active state, size-positioning puts it on the cursor's monitor anyway).
   useEffect(() => {
     const apply = () =>
@@ -468,10 +468,10 @@ function Overlay() {
 
   // The overlay window's body: no margin/scrolling, TRANSPARENT background so
   // the desktop shows through around the pill. Set at runtime (because of the
-  // Vite global CSS bundle we can't put it in CSS — it would affect the main window too).
+  // Vite global CSS bundle we can't put it in CSS, it would affect the main window too).
   useEffect(() => {
     const b = document.body.style;
-    const h = document.documentElement.style; // the <html> (:root) — App.css paints it white!
+    const h = document.documentElement.style; // the <html> (:root), App.css paints it white!
     const prev = { m: b.margin, o: b.overflow, bg: b.background, hbg: h.background };
     b.margin = "0";
     b.overflow = "hidden";
@@ -507,8 +507,8 @@ function Overlay() {
       const msg = String(e);
       // Stuck-state guard: if the backend is already recording (frontend-backend
       // desync, e.g. after a hot reload), treat it as recording → the next
-      // ⌃⇧Space stops it instead of getting stuck. "Már fut" = the backend's
-      // Hungarian "already running" error, matched verbatim.
+      // ⌃⇧Space stops it instead of getting stuck. "already running" is the Rust
+      // backend's error string, matched verbatim.
       if (msg.includes("already running") || msg.toLowerCase().includes("already")) {
         recordingRef.current = true;
         setPhase("recording");
@@ -552,7 +552,7 @@ function Overlay() {
         } else {
           await invoke("insert_text", { text: result.full_text }).catch(() => {});
           // Lavox Memory: the finished dictation flows into memory (fire-and-forget,
-          // never slows the insert — silently no-ops without the server too).
+          // never slows the insert, silently no-ops without the server too).
           invoke("memory_ingest_dictation", { text: result.full_text }).catch(() => {});
           const t3 = performance.now();
           invoke("dbg_log", {
@@ -718,7 +718,7 @@ function Overlay() {
 
   const isDictation = mode === "dictation";
 
-  // Props of the shared bar content (5 buttons + center state + panel) — BOTH shells get this.
+  // Props of the shared bar content (5 buttons + center state + panel), BOTH shells get this.
   const barProps: BarContentProps = {
     phase,
     isDictation,
@@ -758,7 +758,7 @@ function Overlay() {
     <div className="pill-wrap" onMouseEnter={onEnter} onMouseLeave={onLeave}>
       {/* A SINGLE shell that is always present. On hover it first NARROWS with a
           KEYFRAME (anticipation), then EXPANDS into the pill (widens + thickens),
-          making room for the content — which floats in only after the expansion. */}
+          making room for the content, which floats in only after the expansion. */}
       {/* NOTCH GLASS (mockup): a unified Liquid Glass capsule around the notch.
           Top: two teal pills on the TWO sides of the notch. Bottom (open): waveform. */}
       {notched && (() => {
@@ -777,7 +777,7 @@ function Overlay() {
               reduceMotion ? { duration: 0 } : { type: "spring", stiffness: 220, damping: 24, mass: 0.9 }
             }
           >
-            {/* Top row (notch level): two icon beads on the two sides of the notch —
+            {/* Top row (notch level): two icon beads on the two sides of the notch,
                 both closed AND open. The glass is slightly wider + smaller corner, so
                 the beads sit INSIDE the rounded corner and don't stick out. */}
             {/* Top row (notch level): STATUS on the two sides of the notch (NOT a button →
@@ -796,7 +796,7 @@ function Overlay() {
               </div>
             </div>
             {/* Bottom row (open): waveform + STOP while recording; otherwise the 4 Wispr
-                buttons (language · mic · scratchpad) — each a SEPARATE function, no duplication. */}
+                buttons (language · mic · scratchpad), each a SEPARATE function, no duplication. */}
             <AnimatePresence>
               {controlsVisible && (
                 <motion.div
@@ -810,7 +810,7 @@ function Overlay() {
                 </motion.div>
               )}
             </AnimatePresence>
-            {/* Sub-panel (language / device pickers) — the shared BarPanel, identical in both shells. */}
+            {/* Sub-panel (language / device pickers), the shared BarPanel, identical in both shells. */}
             <AnimatePresence>
               {panel && <BarPanel {...barProps} />}
             </AnimatePresence>
@@ -827,7 +827,7 @@ function Overlay() {
         // Explicit height + overflow:hidden → the ALWAYS-mounted content is
         // clipped when collapsed (it doesn't leave the DOM). APPLE PRINCIPLE:
         // don't remove/re-add elements mid-morph, only animate them.
-        // Collapsed: 18px — fits the Lavox logo mark (brand presence even closed).
+        // Collapsed: 18px, fits the Lavox logo mark (brand presence even closed).
         // Panel (language/device) open: the pill grows downward to fit the panel.
         const shellH = doneOpen
           ? 200
@@ -856,7 +856,7 @@ function Overlay() {
                 ? { duration: 0 }
                 : {
                     // APPLE-LIKE "liquid" spring: the glass drips fluidly from under
-                    // the notch, settling gently — one continuous motion.
+                    // the notch, settling gently, one continuous motion.
                     type: "spring",
                     stiffness: 220,
                     damping: 24,
@@ -864,7 +864,7 @@ function Overlay() {
                   }
             }
           >
-            {/* Lavox logo mark in the CLOSED pill — brand presence at a barely-visible size */}
+            {/* Lavox logo mark in the CLOSED pill, brand presence at a barely-visible size */}
             <AnimatePresence>
               {idleLogoVisible && (
                 <motion.div
@@ -878,7 +878,7 @@ function Overlay() {
                 </motion.div>
               )}
             </AnimatePresence>
-            {/* Meeting REC mini capsule — in the collapsed state, INSTEAD of the line:
+            {/* Meeting REC mini capsule, in the collapsed state, INSTEAD of the line:
                 a red pulsing pill + timer. Click = stop + save. */}
             <AnimatePresence>
               {meetRecCompact && (
@@ -898,7 +898,7 @@ function Overlay() {
                 </motion.button>
               )}
             </AnimatePresence>
-            {/* Control bar — ALWAYS in the DOM (Apple principle), only the OPACITY
+            {/* Control bar, ALWAYS in the DOM (Apple principle), only the OPACITY
                 animates along with the size → one coordinated move, no mount/unmount gap.
                 When collapsed, overflow:hidden clips it and opacity:0 hides it. */}
             <motion.div
@@ -911,17 +911,17 @@ function Overlay() {
                   : { duration: 0.2, ease: "easeOut", delay: controlsVisible ? 0.1 : 0 }
               }
             >
-              {/* The shared bar content (5 direct buttons / center state) — the SAME as
+              {/* The shared bar content (5 direct buttons / center state), the SAME as
                   in the notch shell. The pill now shows the 5 buttons when idle (not the
                   old CircleMenu + label), so the two bars are functionally identical. */}
               <BarContent {...barProps} />
             </motion.div>
-            {/* Language/Polish sub-panel — the shared BarPanel, identical to the notch shell. */}
+            {/* Language/Polish sub-panel, the shared BarPanel, identical to the notch shell. */}
             <AnimatePresence>
               {panel && <BarPanel {...barProps} />}
             </AnimatePresence>
 
-            {/* Expanding area — finished transcript. Height animation + content fade-in. */}
+            {/* Expanding area, finished transcript. Height animation + content fade-in. */}
             <AnimatePresence>
               {doneOpen && (
                 <motion.div

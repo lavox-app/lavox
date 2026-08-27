@@ -1,11 +1,11 @@
-// Dictation view — recording + transcription + Obsidian export.
+// Dictation view: recording + transcription + Obsidian export.
 //
 // The AI "polish" flow (rewrite profiles + Prompter) was removed on 2026-08-04:
 // it was half-finished and required the user's own OpenRouter key. The LLM
 // plumbing stays (lib/llm.ts) because the meeting summary builds on it.
 //
-// NOTE: t() keys are Hungarian source strings (gettext-style, see lib/i18n.ts)
-// — keep them byte-identical; the English UI copy lives in lib/i18n-en.ts.
+// NOTE: t() keys are Hungarian source strings (gettext-style, see lib/i18n.ts).
+// Keep them byte-identical; the English UI copy lives in lib/i18n-en.ts.
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Mic, FileDown } from "lucide-react";
@@ -36,7 +36,7 @@ export function DictationView({ modelPath, mics }: Props) {
   const [seconds, setSeconds] = useState(5);
   const [transcript, setTranscript] = useState<TranscriptResult | null>(null);
 
-  // Obsidian export (M1.4 — the backend's export_transcript_to_obsidian command).
+  // Obsidian export (M1.4, the backend's export_transcript_to_obsidian command).
   const [exporting, setExporting] = useState(false);
   const [exportedPath, setExportedPath] = useState("");
 
@@ -60,7 +60,7 @@ export function DictationView({ modelPath, mics }: Props) {
     }
   }
 
-  // Recording + transcription — the existing, working flow.
+  // Recording + transcription, the existing, working flow.
   async function recordAndTranscribe() {
     if (!modelPath) {
       setStatus(t("Nincs modell — tedd a .bin fájlt a models/ mappába"));

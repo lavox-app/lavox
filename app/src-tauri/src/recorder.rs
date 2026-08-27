@@ -1,4 +1,4 @@
-//! Microphone recorder — both timed (M1) and streaming start/stop (M4).
+//! Microphone recorder: both timed (M1) and streaming start/stop (M4).
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -24,7 +24,7 @@ pub fn record_mic_to_wav(path: &str, seconds: u32) -> Result<(), String> {
     let host = cpal::default_host();
     let device = host
         .default_input_device()
-        .ok_or_else(|| "no default input device".to_string())?;
+        .ok_or_else(|| "No default input device".to_string())?;
     let supported = device.default_input_config().map_err(|e| e.to_string())?;
 
     let sample_rate = supported.sample_rate().0;
@@ -67,7 +67,7 @@ pub fn record_mic_to_wav(path: &str, seconds: u32) -> Result<(), String> {
             err_fn,
             None,
         ),
-        other => return Err(format!("unsupported sample format: {other:?}")),
+        other => return Err(format!("Unsupported sample format: {other:?}")),
     }
     .map_err(|e| e.to_string())?;
 
@@ -96,7 +96,7 @@ pub struct StreamingRecorder {
     buffer: Arc<Mutex<Vec<f32>>>,
     sample_rate: u32,
     channels: u16,
-    /// Current microphone level (RMS) as f32::to_bits — for the real-time
+    /// Current microphone level (RMS) as f32::to_bits, for the real-time
     /// waveform. The recording callback updates it on every audio chunk.
     level: Arc<AtomicU32>,
     thread: Option<std::thread::JoinHandle<()>>,

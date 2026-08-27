@@ -1,12 +1,13 @@
 #!/bin/bash
-# Lavox Hub telepítő — dupla-kattintásra fut.
+# Lavox Hub installer: runs on double-click.
 #
-# Nem fordít semmit: a már ALÁÍRT .app-ot tölti le és teszi a helyére.
-# Nem kell hozzá Xcode, cargo, pnpm, Infisical vagy aláíró tanúsítvány.
+# Builds nothing: it downloads the already SIGNED .app and puts it in place.
+# No Xcode, cargo, pnpm, Infisical or signing certificate needed.
 #
-# Az aláírás a build gépen történt; itt CSAK a letöltés-karantén jelzőt vesszük le.
-# Újra-aláírni TILOS — az elrontaná az eredeti Developer ID aláírást, és a
-# macOS visszavonná a Hub TCC-engedélyeit (mikrofon, képernyőfelvétel).
+# The signature was made on the build machine; here we ONLY strip the
+# download-quarantine flag. NEVER re-sign: that would break the original
+# Developer ID signature, and macOS would revoke the Hub's TCC permissions
+# (microphone, screen recording).
 set -euo pipefail
 
 URL="https://api.lavox.cloud/releases/latest/LavoxHub.app.zip"
@@ -14,63 +15,63 @@ DST="/Applications/Lavox Hub.app"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-echo "== Lavox Hub telepítése =="
+echo "== Installing Lavox Hub =="
 echo ""
 
-# Előellenőrzés: hiányzó csomagra a `curl -fL` csak szűkszavú HTTP-hibát adna,
-# amiből a felhasználó nem tudja, mi a teendő — és mivel a script `set -e`-vel
-# fut, azonnal ki is lépne magyarázat nélkül.
-echo "0/4 Kiadás ellenőrzése…"
+# Pre-check: for a missing package, `curl -fL` would only print a terse HTTP
+# error that tells the user nothing about what to do, and because the script
+# runs with `set -e`, it would exit immediately without an explanation.
+echo "0/4 Checking the release…"
 HTTP_CODE="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 -I "$URL" 2>/dev/null || echo "000")"
 if [ "$HTTP_CODE" != "200" ]; then
   echo ""
   if [ "$HTTP_CODE" = "000" ]; then
-    echo "Nem érem el a Lavox szervert. Ellenőrizd az internetkapcsolatot."
+    echo "Cannot reach the Lavox server. Check your internet connection."
   else
-    echo "Nincs letölthető Lavox Hub kiadás (a szerver $HTTP_CODE választ adott)."
-    echo "Ez nem a te géped hibája — a telepítőcsomag még nincs feltöltve."
+    echo "No downloadable Lavox Hub release (the server answered $HTTP_CODE)."
+    echo "This is not a problem with your machine: the installer package has not been uploaded yet."
   fi
   echo ""
-  echo "Írj a hello@lavox.app címre, vagy próbáld újra később."
+  echo "Write to hello@lavox.app, or try again later."
   echo ""
   exit 1
 fi
 
-echo "1/4 Letöltés…"
+echo "1/4 Downloading…"
 curl -fL --progress-bar "$URL" -o "$TMP/LavoxHub.app.zip"
 
-echo "2/4 Kicsomagolás…"
+echo "2/4 Unpacking…"
 ditto -x -k "$TMP/LavoxHub.app.zip" "$TMP"
 if [ ! -d "$TMP/Lavox Hub.app" ]; then
   echo ""
-  echo "HIBA: a letöltött csomag nem tartalmaz 'Lavox Hub.app'-ot."
-  echo "Szólj Dávidnak — valószínűleg a release-csomagolás hibás."
+  echo "ERROR: the downloaded package does not contain 'Lavox Hub.app'."
+  echo "Report this at hello@lavox.app; the release packaging is probably broken."
   exit 1
 fi
 
-echo "3/4 Telepítés…"
+echo "3/4 Installing…"
 osascript -e 'quit app "Lavox Hub"' 2>/dev/null || true
 sleep 1
 rm -rf "$DST"
 cp -R "$TMP/Lavox Hub.app" "$DST"
 xattr -cr "$DST"
 
-# Ellenőrizzük, hogy az aláírás túlélte a másolást. Ha nem, a Gatekeeper
-# "sérült alkalmazás" hibával elutasítaná — jobb itt, érthetően elbukni.
+# Check that the signature survived the copy. If not, Gatekeeper would reject
+# the app as "damaged"; better to fail here with a clear message.
 if ! codesign --verify --deep --strict "$DST" 2>/dev/null; then
   echo ""
-  echo "FIGYELEM: az aláírás-ellenőrzés nem ment át."
-  echo "Az app elindulhat, de ha a macOS elutasítja, szólj Dávidnak."
+  echo "WARNING: the signature check did not pass."
+  echo "The app may still start; if macOS rejects it, report it at hello@lavox.app."
 fi
 
-echo "4/4 Indítás…"
+echo "4/4 Launching…"
 open "$DST"
 
 echo ""
-echo "== KÉSZ =="
-echo "A Lavox Hub elindult."
+echo "== DONE =="
+echo "Lavox Hub is running."
 echo ""
-echo "Párosítás: nyisd meg a webappot (app.lavox.cloud), és a megjelenő"
-echo "kódot írd be a Hub Beállítások → Beszélők panelén."
+echo "Pairing: open the web app (app.lavox.cloud) and enter the code it shows"
+echo "in the Hub under Settings → Speakers."
 echo ""
-echo "(Ez az ablak bezárható.)"
+echo "(You can close this window.)"

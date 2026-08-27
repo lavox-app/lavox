@@ -29,11 +29,11 @@ export function captureToTranscriptText(c: CaptureResult): string {
 export async function summarizeMeeting(capture: CaptureResult): Promise<MeetingSummary> {
   const apiKey = loadApiKey();
   if (!apiKey) {
-    throw new Error("No OpenRouter API key — add one in Settings.");
+    throw new Error("No OpenRouter API key. Add one in Settings.");
   }
   const transcript = captureToTranscriptText(capture);
   if (!transcript.trim()) {
-    throw new Error("Empty transcript — nothing to summarize.");
+    throw new Error("Empty transcript: nothing to summarize.");
   }
   // Clip very long transcripts (Haiku's context is plenty, but we also keep
   // cost in check); content near the end is usually more important

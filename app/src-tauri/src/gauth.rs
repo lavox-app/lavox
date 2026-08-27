@@ -1,11 +1,11 @@
-//! Google OAuth for a native (desktop) app — RFC 8252 loopback + PKCE.
+//! Google OAuth for a native (desktop) app: RFC 8252 loopback + PKCE.
 //!
 //! WHY NOT the browser-based Google Identity Services (GIS):
 //! the previous solution loaded the `accounts.google.com/gsi/client` script
 //! from `index.html`, which the Tauri CSP (`script-src 'self'`) BLOCKS in the
 //! packaged app → `window.google` is undefined and sign-in failed silently.
 //! On top of that, the GIS token client only issues a 1-hour access token
-//! WITHOUT a refresh token — so the calendar poller silently died every hour.
+//! WITHOUT a refresh token, so the calendar poller silently died every hour.
 //!
 //! THIS SOLUTION: open Google's consent page in the system browser, catch the
 //! redirect with a throwaway `127.0.0.1:<port>` HTTP listener, then exchange
@@ -14,7 +14,7 @@
 //!
 //! Setup: Google Cloud Console → the project → OAuth client, type **Desktop
 //! app**. The ID/secret go here (per RFC 8252 a desktop client's secret is
-//! NOT confidential — it cannot be kept secret in a native app anyway).
+//! NOT confidential, it cannot be kept secret in a native app anyway).
 
 use serde::{Deserialize, Serialize};
 use std::io::{Read, Write};
@@ -26,7 +26,7 @@ const SCOPES: &str = "https://www.googleapis.com/auth/calendar.readonly https://
 
 /// The Desktop-app OAuth client credentials. The names match the keys stored
 /// in Infisical (`LAVOX_DESKTOP_CLIENT_ID` / `..._SECRET`), so the build gets
-/// them directly as `infisical run -- ./build-and-install.command` — the
+/// them directly as `infisical run -- ./build-and-install.command`, the
 /// secret never lands in the repo or the shell history.
 ///
 /// `option_env!` = baked in at compile time (so the packaged app works
@@ -84,7 +84,7 @@ pub fn save_tokens(t: &StoredTokens) -> Result<(), String> {
     }
     let json = serde_json::to_string_pretty(t).map_err(|e| e.to_string())?;
     std::fs::write(&path, json).map_err(|e| e.to_string())?;
-    // The refresh token is a long-lived credential — owner-readable only.
+    // The refresh token is a long-lived credential, owner-readable only.
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -122,7 +122,7 @@ fn b64url(data: &[u8]) -> String {
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(data)
 }
 
-/// SHA-256 via the `security` CLI? No — a dependency-free implementation of
+/// SHA-256 via the `security` CLI? No: a dependency-free implementation of
 /// our own, so no new crate enters the tree just for the PKCE challenge.
 fn sha256(data: &[u8]) -> [u8; 32] {
     const K: [u32; 64] = [
@@ -224,7 +224,7 @@ struct TokenResponse {
 }
 
 /// Catches the redirect coming back from the browser with a throwaway loopback
-/// listener. Blocking call — the caller runs it in `spawn_blocking`.
+/// listener. Blocking call, the caller runs it in `spawn_blocking`.
 fn wait_for_code(listener: TcpListener, expected_state: &str) -> Result<String, String> {
     // Don't hang forever if the user closes the browser: 3-minute grace period.
     listener
@@ -234,7 +234,7 @@ fn wait_for_code(listener: TcpListener, expected_state: &str) -> Result<String, 
 
     for stream in listener.incoming() {
         if std::time::Instant::now() > deadline {
-            return Err("Timed out — the sign-in did not complete.".into());
+            return Err("Timed out: the sign-in did not complete.".into());
         }
         let mut stream = match stream {
             Ok(s) => s,
@@ -268,7 +268,7 @@ fn wait_for_code(listener: TcpListener, expected_state: &str) -> Result<String, 
         } else if code.is_empty() {
             "<h2>Missing code.</h2><p>Try again from Lavox Hub.</p>"
         } else {
-            "<h2>Done!</h2><p>You can return to Lavox Hub — this window can be closed.</p>"
+            "<h2>Done!</h2><p>You can return to Lavox Hub; this window can be closed.</p>"
         };
         let resp = format!(
             "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
@@ -286,7 +286,7 @@ fn wait_for_code(listener: TcpListener, expected_state: &str) -> Result<String, 
         }
         // CSRF protection: the returned state must match what we sent.
         if state != expected_state {
-            return Err("State mismatch — the response did not come from us.".into());
+            return Err("State mismatch: the response did not come from us.".into());
         }
         return Ok(code);
     }
@@ -302,7 +302,7 @@ pub async fn login(app: &tauri::AppHandle) -> Result<StoredTokens, String> {
         "The Google Desktop OAuth client secret is not configured (LAVOX_GOOGLE_CLIENT_SECRET).",
     )?;
 
-    // The loopback listener on an EPHEMERAL port — Google's desktop client
+    // The loopback listener on an EPHEMERAL port, Google's desktop client
     // accepts any 127.0.0.1 port, no pre-registration needed.
     let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| format!("port: {e}"))?;
     let port = listener
@@ -324,7 +324,7 @@ pub async fn login(app: &tauri::AppHandle) -> Result<StoredTokens, String> {
         urlencode(&state),
     );
 
-    // Opened in the system browser (not an embedded webview — Google forbids it).
+    // Opened in the system browser (not an embedded webview, Google forbids it).
     {
         use tauri_plugin_opener::OpenerExt;
         app.opener()
@@ -356,7 +356,7 @@ pub async fn login(app: &tauri::AppHandle) -> Result<StoredTokens, String> {
     if !resp.status().is_success() {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
-        return Err(format!("token exchange failed ({status}): {body}"));
+        return Err(format!("Token exchange failed ({status}): {body}"));
     }
     let tr: TokenResponse = resp
         .json()
@@ -380,7 +380,7 @@ pub async fn refresh(stored: &StoredTokens) -> Result<StoredTokens, String> {
     let cid = client_id().ok_or("Missing Google client ID.")?;
     let csecret = client_secret().ok_or("Missing Google client secret.")?;
     if stored.refresh_token.is_empty() {
-        return Err("No refresh token — you need to sign in again.".into());
+        return Err("No refresh token: sign in again.".into());
     }
 
     let client = reqwest::Client::new();
@@ -403,7 +403,7 @@ pub async fn refresh(stored: &StoredTokens) -> Result<StoredTokens, String> {
         if status.as_u16() == 400 || status.as_u16() == 401 {
             clear_tokens();
         }
-        return Err(format!("token refresh failed ({status}): {body}"));
+        return Err(format!("Token refresh failed ({status}): {body}"));
     }
     let tr: TokenResponse = resp
         .json()
@@ -411,7 +411,7 @@ pub async fn refresh(stored: &StoredTokens) -> Result<StoredTokens, String> {
         .map_err(|e| format!("refresh response parse: {e}"))?;
 
     let updated = StoredTokens {
-        // On refresh Google usually does NOT send a new refresh token — keep the old one.
+        // On refresh Google usually does NOT send a new refresh token, keep the old one.
         refresh_token: tr.refresh_token.unwrap_or_else(|| stored.refresh_token.clone()),
         access_token: tr.access_token,
         expires_at: chrono::Utc::now().timestamp_millis() + tr.expires_in * 1000,

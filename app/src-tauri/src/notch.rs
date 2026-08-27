@@ -1,4 +1,4 @@
-//! Notch detection (MacBook display cutout) — for the Dynamic Island-style
+//! Notch detection (MacBook display cutout) for the Dynamic Island-style
 //! "either side of the notch" (compact) layout. No notch → fallback (floating pill).
 //!
 //! Source: `NSScreen.safeAreaInsets.top` (notch height) +

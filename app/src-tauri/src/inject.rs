@@ -1,7 +1,7 @@
-//! M2.2 — inserting the transcript at the active app's cursor (Wispr-like system-wide dictation).
+//! M2.2: inserting the transcript at the active app's cursor (Wispr-like system-wide dictation).
 //!
 //! Method (after Wispr):
-//!   1. When dictation STARTS, we save which app was active (bundle ID) — `lib.rs`.
+//!   1. When dictation STARTS, we save which app was active (bundle ID), `lib.rs`.
 //!   2. On insertion, the text is put on the clipboard.
 //!   3. We RE-ACTIVATE the target app (`open -b <bundleID>`) → focus is guaranteed there.
 //!   4. Synthetic Cmd+V (CGEvent) → the text lands at the cursor.

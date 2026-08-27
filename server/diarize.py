@@ -1,9 +1,9 @@
 """
-Speaker diarization + enrollment — sherpa-onnx (ONNX runtime, PyTorch-free).
+Speaker diarization + enrollment: sherpa-onnx (ONNX runtime, PyTorch-free).
 
 Engine: pyannote segmentation-3.0 (ONNX) + NeMo TitaNet-large speaker embedding.
 Benchmark (2026-07-08, 100s HU test, 3 speakers): 98.1% frame accuracy,
-490 MB peak RAM, RTF 0.08 — details in STATUS.md.
+490 MB peak RAM, RTF 0.08.
 
 Multi-tenant: the enrollment profiles live in a separate directory per
 workspace (SPEAKER_DB_DIR/<workspace_id>/); no workspace can see another's.
@@ -45,8 +45,8 @@ class Diarizer:
     def __init__(self, num_threads: int = 2):
         if not models_available():
             raise RuntimeError(
-                f"Diarization models are missing: {SEG_MODEL} / {EMBED_MODEL} — "
-                "see server/download_models.sh"
+                f"Diarization models are missing: {SEG_MODEL} / {EMBED_MODEL}. "
+                "Run server/download_models.sh"
             )
         self._lock = threading.Lock()
         self._num_threads = num_threads
@@ -209,7 +209,7 @@ def harvest_profile(
 
     This is the engine of the "Otter flow": if a cluster received a name from
     anywhere (Meet CC, official participant list, manual rename), we store
-    its voice — at the next meeting we already recognize it, without CC or
+    its voice, at the next meeting we already recognize it, without CC or
     anything else.
 
     Protections:
@@ -259,7 +259,7 @@ def harvest_profile(
     )
     if existing is not None:
         if profile_similarity(existing, emb) < HARVEST_POISON_SIM:
-            return None  # does not fit this voice — probably a wrong name
+            return None  # does not fit this voice, probably a wrong name
         if len(existing.get("embeddings") or []) >= HARVEST_MAX_EMB:
             return None  # the profile is already strong enough
     return save_speaker(workspace, name, is_me, emb)
@@ -275,7 +275,7 @@ def harvest_me_profile(
     """Automatically build the RECORDER's profile from the mic track.
 
     mic.wav is by definition exclusively the user's voice, so it is the
-    cleanest possible training material — and it comes from the same channel
+    cleanest possible training material, and it comes from the same channel
     as later recordings. This makes the 20-second read-aloud enrollment
     (SpeakersPanel) optional.
     """
@@ -308,7 +308,7 @@ def merge_two_track(
     workspace: str,
     num_speakers: int = -1,
 ) -> tuple[list[dict], list[dict], dict]:
-    """TWO-TRACK processing — the system's strongest, platform-independent signal.
+    """TWO-TRACK processing, the system's strongest, platform-independent signal.
 
     The recording is made on two separate tracks: `mic` = EXCLUSIVELY the
     recorder's voice, `system` = EXCLUSIVELY the others. If these are mixed
@@ -405,7 +405,7 @@ def diarize_and_identify(
     for t in turns:
         total_dur[t["cluster"]] = total_dur.get(t["cluster"], 0.0) + (t["end"] - t["start"])
     # A profile may be assigned to only ONE cluster (the cluster with the
-    # longest speaking time gets it) — otherwise the same name could settle
+    # longest speaking time gets it), otherwise the same name could settle
     # onto multiple clusters.
     claimed: set[str] = set()
     for c in sorted(centroids, key=lambda c: -total_dur.get(c, 0.0)):

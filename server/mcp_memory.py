@@ -1,19 +1,19 @@
-"""Lavox Memory — MCP server (M1: reading + disciplined writing).
+"""Lavox Memory MCP server (M1: reading + disciplined writing).
 
 Memory is the base layer; the interface is Claude Code / ChatGPT / any MCP
 client. The tool names are deliberate: `search` and `fetch` are the
 OpenAI-compatible pair (ChatGPT rejects the server without them outside
-Developer Mode, and Deep Research calls only these two) — so the M2 remote
+Developer Mode, and Deep Research calls only these two), so the M2 remote
 HTTP release ships without renaming any tools.
 
 The write tools (remember/correct) are disciplined: mandatory source
-labeling, duplicate-suspicion warnings, and correct NEVER deletes — it
+labeling, duplicate-suspicion warnings, and correct NEVER deletes, it
 writes a supersedes chain (the overridden assertion stays retrievable).
 This is the core of the defense against memory poisoning: every entry must
 be traceable to its origin, and nothing may vanish without a trace.
 
 A documented lesson of the research is that the model rarely reaches for
-memory on its own based on tool descriptions alone — hence (a) the
+memory on its own based on tool descriptions alone, hence (a) the
 `instructions` field also steers it, and (b) the descriptions state:
 BEFORE saying you don't know, search.
 """
@@ -56,7 +56,7 @@ def search(
     kind: str | None = None,
     since: str | None = None,
 ) -> str:
-    """Searches the user's personal spoken-memory archive — everything they have said,
+    """Searches the user's personal spoken-memory archive, everything they have said,
     decided, or discussed in recorded meetings and voice notes.
 
     Use this BEFORE answering any question about the user's past decisions,
@@ -64,16 +64,16 @@ def search(
     you don't know something about them. Hungarian and English queries both
     work. Prefer 2-3 varied queries over one broad query.
 
-    Returns ranked snippets with an id — call `fetch` with an id for the full
+    Returns ranked snippets with an id, call `fetch` with an id for the full
     transcript segment. Results marked "superseded" are decisions that were
     later overridden; by default only active items are returned
-    (include_superseded=true shows history — "what did we believe in July").
+    (include_superseded=true shows history, "what did we believe in July").
 
     Args:
         query: natural-language question or keywords (HU or EN)
         limit: max results (default 8)
         include_superseded: include overridden assertions too
-        kind: filter — meeting | dictation | note
+        kind: filter, meeting | dictation | note
         since: ISO date lower bound, e.g. 2026-07-01
     """
     res = memory.search(
@@ -110,7 +110,7 @@ def timeline(
     kind: str | None = None,
     limit: int = 30,
 ) -> str:
-    """Chronological list of recordings (meetings, dictations) — use for
+    """Chronological list of recordings (meetings, dictations), use for
     date-based questions like "what meetings did the user have last week", which
     semantic search handles poorly. Dates are ISO (2026-08-01).
 
@@ -128,7 +128,7 @@ def timeline(
 
 @server.tool()
 def stats() -> str:
-    """How much memory exists and how far back it reaches — call this first if
+    """How much memory exists and how far back it reaches, call this first if
     you are unsure whether searching is worthwhile (e.g. empty or very new
     archive)."""
     return json.dumps(memory.stats(db()), ensure_ascii=False)
@@ -146,7 +146,7 @@ def remember(text: str, type: str = "fact", data: dict | None = None) -> str:
     pronouns), in the language the user used.
 
     For type="decision", pass data={"chosen": ..., "alternatives": [...],
-    "reasoning": ...} — the rejected alternatives are the most valuable part.
+    "reasoning": ...}, the rejected alternatives are the most valuable part.
 
     Args:
         text: the statement to remember (self-contained, one fact)
@@ -165,7 +165,7 @@ def remember(text: str, type: str = "fact", data: dict | None = None) -> str:
     out = {"saved": f"assertion:{aid}"}
     if close:
         out["warning"] = (
-            "Very similar active memories exist — if this REPLACES one of them, "
+            "Very similar active memories exist; if this REPLACES one of them, "
             "call correct() with its id instead of leaving both active."
         )
         out["similar"] = close
@@ -176,7 +176,7 @@ def remember(text: str, type: str = "fact", data: dict | None = None) -> str:
 def correct(old_id: str, new_text: str, reason: str | None = None) -> str:
     """Marks an existing memory as superseded and stores the corrected version.
     Use when `search` returns something the user has since contradicted or
-    changed. The old memory is NEVER deleted — it stays retrievable with
+    changed. The old memory is NEVER deleted, it stays retrievable with
     include_superseded=true, so "what did we believe in July" keeps working.
 
     Args:

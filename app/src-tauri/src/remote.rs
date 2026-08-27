@@ -1,10 +1,10 @@
-//! Remote transcription + diarization client — calls the self-hosted /
+//! Remote transcription + diarization client: calls the self-hosted /
 //! Lavox-hosted Lavox server (`server/app.py`) and maps the response onto the
 //! `model::CaptureResult` (Segment/Speaker) structs.
 //!
 //! Serves two modes with the same code:
-//!  - local/self-hosted (paid tier): the user's own server URL
-//!  - cloud (free tier): Lavox-hosted URL + workspace identifier
+//!  - self-hosted: the user's own server URL
+//!  - hosted: a Lavox-hosted URL plus a workspace identifier (planned)
 
 use serde::{Deserialize, Serialize};
 
@@ -138,7 +138,7 @@ pub fn cut_spans_to_wav(
     Ok(true)
 }
 
-/// Writes a single track as 16 kHz mono WAV (pre-upload compression — the raw
+/// Writes a single track as 16 kHz mono WAV (pre-upload compression, the raw
 /// 48 kHz tracks are needlessly large, and the server works at 16 kHz anyway).
 pub fn resample_track(input: &str, out_path: &str) -> Result<(), String> {
     let samples = crate::transcribe::load_wav_16khz_mono(input)?;
@@ -244,8 +244,8 @@ async fn error_for_status(resp: reqwest::Response) -> Result<reqwest::Response, 
 /// Meeting audio → diarized transcript → CaptureResult.
 ///
 /// TWO-TRACK mode (`mic_path` given): the system audio (`audio_path` = the
-/// others) and the microphone (= the recording user) are uploaded SEPARATELY —
-/// making the "me vs. them" question deterministic, platform-independently.
+/// others) and the microphone (= the recording user) are uploaded SEPARATELY,
+/// which makes the "me vs. them" question deterministic on every platform.
 /// The old mixed-track call (mic_path=None) keeps working backwards-compatibly.
 pub async fn transcribe_diarized(
     cfg: &ServerConfig,
@@ -270,7 +270,7 @@ pub async fn transcribe_diarized(
     if let Some(mp) = mic_path {
         form = form.part("mic_file", file_part(mp).await?);
     }
-    // Voice-learning (harvest) switch — can be disabled in Settings.
+    // Voice-learning (harvest) switch, can be disabled in Settings.
     form = form.text("harvest", if harvest { "true" } else { "false" });
     // AUTO-SAVE: after transcription the server saves the recording to the
     // cloud on its own (Postgres+R2) → it appears in the webapp immediately,
@@ -287,7 +287,7 @@ pub async fn transcribe_diarized(
             form = form.text("candidate_names", json);
         }
     }
-    // Meet CC captions (if any) — the server's fusion uses them to assign real
+    // Meet CC captions (if any), the server's fusion uses them to assign real
     // speaker names to the whisper segments.
     if let Some(cp) = captions_path {
         if let Ok(json) = std::fs::read_to_string(cp) {
@@ -348,7 +348,7 @@ pub async fn transcribe_diarized(
 }
 
 /// Speaker enrollment: uploads a voice sample with a name. Returns the server's
-/// JSON raw (id, name, is_me, num_samples) — the frontend renders it.
+/// JSON raw (id, name, is_me, num_samples), the frontend renders it.
 pub async fn enroll_speaker(
     cfg: &ServerConfig,
     audio_path: &str,
@@ -392,13 +392,13 @@ pub async fn delete_speaker(cfg: &ServerConfig, speaker_id: &str) -> Result<Stri
 }
 
 // ---------------------------------------------------------------------------
-// Cloud pairing (device-code flow) — for the webapp/backend side see
+// Cloud pairing (device-code flow), for the webapp/backend side see
 // lavox-web/docs/hub-pairing.md. The Hub makes only TWO calls here: redeem
 // the code once, then a periodic heartbeat while it runs.
 // ---------------------------------------------------------------------------
 
 /// Fixed address of the Lavox-hosted (free/cloud tier) backend. After a
-/// successful pairing the ServerConfig.url is pointed here too — from then on
+/// successful pairing the ServerConfig.url is pointed here too, from then on
 /// the Hub sends the existing remote_transcribe_meeting/enroll_speaker/etc.
 /// calls to this server as well, authenticated with the device token
 /// (cfg.api_key).
@@ -411,7 +411,7 @@ struct PairClaimResponse {
 }
 
 /// Redeems the pairing code shown in the webapp onboarding for a device token.
-/// Callable without auth (the code itself is the secret) — 404 if invalid/expired.
+/// Callable without auth (the code itself is the secret), 404 if invalid/expired.
 pub async fn pair_claim(code: &str) -> Result<ServerConfig, String> {
     let url = format!("{LAVOX_CLOUD_URL}/api/hub/pair/claim");
     let resp = client()
@@ -435,7 +435,7 @@ pub async fn pair_claim(code: &str) -> Result<ServerConfig, String> {
     })
 }
 
-/// A single heartbeat with the device token — the caller (start_heartbeat_loop)
+/// A single heartbeat with the device token, the caller (start_heartbeat_loop)
 /// invokes it periodically while the Hub runs. 401 means the token was revoked/invalid.
 async fn heartbeat_once(cfg: &ServerConfig) -> Result<(), String> {
     let url = format!("{LAVOX_CLOUD_URL}/api/hub/heartbeat");
@@ -452,7 +452,7 @@ async fn heartbeat_once(cfg: &ServerConfig) -> Result<(), String> {
 /// Background loop: re-reads the config every 30 seconds (so a fresh pairing
 /// is picked up immediately without a restart), and if there is a device token
 /// and the server is the Lavox cloud, sends a heartbeat. Silently skips itself
-/// on a self-hosted (non-cloud) config — nothing to heartbeat there.
+/// on a self-hosted (non-cloud) config, nothing to heartbeat there.
 pub fn start_heartbeat_loop() {
     tauri::async_runtime::spawn(async move {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));

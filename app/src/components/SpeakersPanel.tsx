@@ -1,11 +1,11 @@
 // Speakers (diarization enrollment) panel for Settings.
 // The backend commands are ready (enroll_speaker / list_enrolled_speakers /
-// delete_enrolled_speaker + get/set_server_config) — this UI implements the
+// delete_enrolled_speaker + get/set_server_config), this UI implements the
 // STATUS.md M5.1 UX flow: list (name, sample count, "me" marker, delete)
 // + "New speaker": name + is_me → 20s guided recording (record_mic) → enroll.
 //
-// NOTE: t() keys are Hungarian source strings (gettext-style, see lib/i18n.ts)
-// — keep them byte-identical; the English UI copy lives in lib/i18n-en.ts.
+// NOTE: t() keys are Hungarian source strings (gettext-style, see lib/i18n.ts).
+// Keep them byte-identical; the English UI copy lives in lib/i18n-en.ts.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Users, Mic, Trash2, RefreshCw } from "lucide-react";
@@ -26,7 +26,7 @@ interface ServerConfig {
 
 /** Sample text read aloud during the 20s enrollment (Hungarian, phoneme-rich).
  *  FUNCTIONAL DATA: this is spoken content for the voice profile, deliberately
- *  Hungarian — do not translate. */
+ *  Hungarian, do not translate. */
 const PROMPT_SENTENCE =
   "A gyors barna róka átugrik a lusta kutya fölött, miközben a nyári zápor " +
   "kopogása végigfut a bádogtetőn. Kérek egy dupla eszpresszót citromhéjjal, " +
@@ -90,7 +90,7 @@ export function SpeakersPanel() {
     }
   }, [cfg, refresh]);
 
-  /** Redeem the code shown in the webapp's onboarding — the server config
+  /** Redeem the code shown in the webapp's onboarding, the server config
    * (url/api_key/workspace) automatically points to the Lavox cloud, no manual
    * setup. The background heartbeat starts on its own from here. */
   const doPair = useCallback(async () => {
@@ -184,7 +184,7 @@ export function SpeakersPanel() {
       </div>
       {pairMsg && <p className="setting-hint">{pairMsg}</p>}
 
-      {/* Server settings (the diarization server; local or cloud) —
+      {/* Server settings (the diarization server; local or cloud):
           fills in on its own after pairing; manual entry is only for self-hosting. */}
       <div className="setting-row" style={{ gap: 8 }}>
         <input

@@ -1,4 +1,4 @@
-// Left sidebar for the main window — the visual style of the web dashboard's
+// Left sidebar for the main window: the visual style of the web dashboard's
 // Sidebar (logo + title on top, mode nav items with icons + active state with teal background).
 // NOTE: t() keys are Hungarian source strings (gettext-style, see lib/i18n.ts).
 import { Settings } from "lucide-react";
@@ -41,7 +41,7 @@ export function Sidebar({ current, onSelect, modelName }: Props) {
       </div>
       <p className="sidebar-subtitle">Capture → Transcribe → Second Brain</p>
 
-      {/* 4 modes as nav items — the type's own color is the dot on the right. */}
+      {/* 4 modes as nav items, the type's own color is the dot on the right. */}
       <div className="nav-section-label">{t("Módok")}</div>
       <nav className="sidebar-nav sidebar-nav-main">
         {MODES.map((mode) => {

@@ -36,7 +36,7 @@ export function Waveform({ levels }: WaveformProps) {
   );
 }
 
-// Transcription: instead of the wave, subtle "running" shimmer dots — signals
+// Transcription: instead of the wave, subtle "running" shimmer dots, signals
 // it's working but no longer recording audio. Three dots, glowing in sequence.
 export function Shimmer() {
   return (

@@ -9,9 +9,11 @@ tags: [project/capture-aios, interface]
 # `CaptureResult`: the central data interface
 
 > [!note] This is the engine → export data model.
-> The capture engine **produces** it, the ObsidianExporter **consumes** it. As long as the shape is fixed, the UI/export can be developed against mock data. **Versioned**: adding a new optional field is non-breaking; deleting/renaming a field is breaking → version bump.
+> The capture engine **produces** it and the ObsidianExporter **consumes** it. As long as the shape is fixed, the UI and the export can be developed against mock data. **Versioned**: adding a new optional field is non-breaking; deleting or renaming a field is breaking and requires a version bump.
 
-Related: [[PROJECT-BRIEF]] · [[TRACK-A-David]] · [[INTERFACE-SystemAudioCapture]]
+> **Design note.** This document comes from the planning phase and describes the intended contract. Where it and the code differ, the code is authoritative.
+
+Related: [SystemAudioCapture](interface-system-audio.md)
 
 ## The schema (v1)
 
@@ -38,7 +40,7 @@ type CaptureResult = {
     text: string;
   }>;
 
-  // Filled AFTER the LLM pass (null/empty before it):
+  // Filled in AFTER the LLM pass (null/empty before it):
   summary?: string | null;
   action_items?: string[];
   title?: string | null;
@@ -52,27 +54,27 @@ type CaptureResult = {
 | Field | Engine fills | Export reads |
 |---|---|---|
 | id, type, status, created_at, duration, language | ✅ | ✅ |
-| media.audio_path / video_url | ✅ | links it / web link |
-| speakers[] / segments[] | ✅ (STT+diarization) | speaker-label markdown |
+| media.audio_path / video_url | ✅ | links to the file / web link |
+| speakers[] / segments[] | ✅ (STT + diarization) | markdown grouped by speaker |
 | summary, action_items, title, tags | ✅ (LLM pass) | frontmatter + body |
 
 ## Edge cases
-- **No diarization** (dictation): a single speaker `S1`, `is_me:true`.
-- **Before the LLM pass**: `summary/...` is null → the export must handle this (not error out).
-- **Streaming**: multiple `partial`s, one `final` at the end; the `final` is the source of truth.
+- **No diarization** (dictation): a single speaker `S1` with `is_me: true`.
+- **Before the LLM pass**: `summary` and friends are null. The export must handle this gracefully, not error out.
+- **Streaming**: several `partial` results, then one `final` at the end; the `final` is the source of truth.
 
 ## Open decisions (before M0)
 > [!question] D1: `segments[]` granularity
-> Segment level (sentence) vs word level (`words[]`). **Recommendation:** v0.1 segment level; word level as an additive field later.
+> Segment level (sentence) or word level (`words[]`)? **Recommendation:** segment level for v0.1; word level later, as an additive field.
 > - [ ] Decision: __________
 
-> [!question] D2: Streaming vs batch
-> Live transcript (Wispr-style experience) now, or all at once at the end? **Recommendation:** v0.1 **batch** (simpler engine); live dictation in v0.2. `status` stays in the schema.
+> [!question] D2: Streaming or batch
+> Live transcript (a Wispr-style experience) now, or everything at once at the end? **Recommendation:** **batch** for v0.1 (simpler engine); live dictation in v0.2. `status` stays in the schema either way.
 > - [ ] Decision: __________
 
 ## Mock
-`mocks/sample-meeting.json`: a filled-in instance of the schema. Hand-maintained fixture; the export tests (`export.rs`) run against it, so any schema drift surfaces at compile time.
+`app/mocks/sample-meeting.json` is a filled-in instance of the schema. It is a hand-maintained fixture; the export tests in `export.rs` parse it, so any schema drift shows up as a failing test.
 
 ## Sign-off
-- [ ] D1 + D2 decided
-- [ ] v1.0.0 lock → only additive changes from here on
+- [ ] D1 and D2 decided
+- [ ] v1.0.0 locked: only additive changes from here on

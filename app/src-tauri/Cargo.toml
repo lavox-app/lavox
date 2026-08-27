@@ -25,31 +25,31 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 cpal = "0.15"
 hound = "3.5"
-# Metal = Apple GPU-gyorsítás → 5-10× gyorsabb transzkripció (near-real-time)
+# Metal = Apple GPU acceleration → 5-10× faster transcription (near real-time)
 whisper-rs = { version = "0.16", features = ["metal"] }
-# M2: globális gyorsbillentyű az overlay előhívásához
+# M2: global hotkey to summon the overlay
 tauri-plugin-global-shortcut = "2"
-# Always-interactive overlay: az overlay ablakot non-activating NSPanel-lé alakítja
-# → hover-re kinyílik AKKOR IS, ha másik app van fókuszban (mint a Wispr Flow).
+# Always-interactive overlay: turns the overlay window into a non-activating NSPanel
+# → it opens on hover EVEN WHEN another app has focus (like Wispr Flow).
 tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", branch = "v2" }
-# Natív macOS vibrancy (igazi Apple liquid-glass anyag) a notebook-ablakhoz —
-# stabil, nem glitchel (szemben a CSS backdrop-filterrel, ami fókusz-függő).
+# Native macOS vibrancy (real Apple liquid-glass material) for the notebook window:
+# stable, no glitches (unlike the CSS backdrop-filter, which depends on focus).
 window-vibrancy = "0.5"
-# A Lavox Notes csatolmányainak (data-URL kép/fájl) megnyitásához: ideiglenes
-# fájlba dekódoljuk, majd a rendszer alapértelmezett appjával nyitjuk (opener).
+# For opening Lavox Notes attachments (data-URL image/file): decoded into a
+# temporary file, then opened with the system default app (opener).
 base64 = "0.22"
-# M4: Google Calendar auto-record; multipart: M5 diarizált transzkripció-upload
+# M4: Google Calendar auto-record; multipart: M5 diarized transcript upload
 reqwest = { version = "0.12", features = ["json", "multipart"] }
 chrono = { version = "0.4", features = ["serde"] }
 tokio = { version = "1", features = ["time", "sync", "fs"] }
-# M2.2: átirat beillesztése a kurzorhoz (vágólap + szintetikus Cmd+V)
-# default-features=false → nincs `image` crate (csak szöveg kell), gyorsabb build
+# M2.2: inserting the transcript at the cursor (clipboard + synthetic Cmd+V)
+# default-features=false → no `image` crate (text only), faster build
 arboard = { version = "3", default-features = false }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 core-graphics = "0.25"
 core-foundation = "0.10"
-# Notch-detektálás (NSScreen.safeAreaInsets / auxiliaryTopLeftArea)
+# Notch detection (NSScreen.safeAreaInsets / auxiliaryTopLeftArea)
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSScreen"] }
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSGeometry", "NSArray"] }

@@ -1,4 +1,4 @@
-//! Reliable push-to-talk key listener — the Discord / Wispr approach.
+//! Reliable push-to-talk key listener: the Discord / Wispr approach.
 //!
 //! The "Global Shortcut" plugin is meant for one-shot hotkeys, and for a
 //! hold-to-talk chord it reports the RELEASE unreliably (which is why the
@@ -22,7 +22,7 @@ mod imp {
     static SPACE: AtomicBool = AtomicBool::new(false);
     static DICTATING: AtomicBool = AtomicBool::new(false);
     // The active trigger combo watched by the CGEventTap (set via lib.rs
-    // set_hotkey/get_hotkey; on startup the persisted value is loaded — Fn default).
+    // set_hotkey/get_hotkey; on startup the persisted value is loaded, Fn default).
     pub(crate) static ACTIVE_COMBO: Mutex<Option<HotkeyCombo>> = Mutex::new(None);
 
     const SPACE_KEY: i64 = 49;
@@ -160,7 +160,7 @@ mod imp {
 
             if result.is_err() {
                 eprintln!(
-                    "Lavox Hub: the key listener (CGEventTap) did not start — enable Input Monitoring."
+                    "Lavox Hub: the key listener (CGEventTap) did not start. Enable Input Monitoring."
                 );
             }
         });
@@ -190,7 +190,7 @@ impl Default for HotkeyCombo {
     }
 }
 
-/// Sets the active combo watched by the CGEventTap (live reconfiguration —
+/// Sets the active combo watched by the CGEventTap (live reconfiguration,
 /// called by the set_hotkey command, no app restart needed).
 pub fn set_active_combo(combo: HotkeyCombo) {
     #[cfg(target_os = "macos")]
@@ -215,7 +215,7 @@ pub struct KeyState {
 }
 
 /// True if `state` SATISFIES `combo`: every required modifier is down, every
-/// NON-required modifier is up (no overshoot — Ctrl+Shift must not activate
+/// NON-required modifier is up (no overshoot, Ctrl+Shift must not activate
 /// on Ctrl+Shift+Alt), and the main key (if any) is down.
 pub fn combo_active(combo: &HotkeyCombo, state: &KeyState) -> bool {
     let want = |name: &str| combo.mods.iter().any(|m| m == name);
@@ -273,7 +273,7 @@ mod tests {
 
     #[test]
     fn alt_cmd_required_and_active_only_when_both_down() {
-        // wa/wm (alt/cmd) only appeared as "extras" in the tests so far — here
+        // wa/wm (alt/cmd) only appeared as "extras" in the tests so far, here
         // we cover them as REQUIRED modifiers too, so an accidental wa/wm swap
         // (a transcription slip) would fail the test.
         let c = HotkeyCombo { mods: vec!["alt".into(), "cmd".into()], key: None };
@@ -284,7 +284,7 @@ mod tests {
 
     #[test]
     fn unknown_key_never_active() {
-        // The `Some(_) => false` fallback arm — an unknown main key is never
+        // The `Some(_) => false` fallback arm, an unknown main key is never
         // active, even when all modifiers match.
         let c = HotkeyCombo { mods: vec!["ctrl".into()], key: Some("Tab".into()) };
         assert!(!combo_active(&c, &st(false, true, false, false, false, false)));

@@ -1,4 +1,4 @@
-//! Personal dictation dictionary — reader side.
+//! Personal dictation dictionary: reader side.
 //!
 //! The server owns all writes (~/Lavox/dictionary.json, see the server's
 //! dictionary.py). The Hub only reads it: the terms bias the whisper decoder
@@ -82,7 +82,7 @@ fn replace_word_ci(text: &str, from: &str, to: &str) -> String {
     let chars: Vec<char> = text.chars().collect();
     let lower: Vec<char> = text.to_lowercase().chars().collect();
     let needle: Vec<char> = from.to_lowercase().chars().collect();
-    // to_lowercase can change the char count for exotic scripts — bail out
+    // to_lowercase can change the char count for exotic scripts, bail out
     // rather than corrupt offsets (the replacement is best-effort anyway).
     if lower.len() != chars.len() || needle.is_empty() {
         return text.to_string();

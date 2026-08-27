@@ -28,12 +28,12 @@ import {
   Check,
   Pin,
 } from "lucide-react";
-// NOTE: t() keys are Hungarian source strings (gettext-style, see lib/i18n.ts)
-// — keep them byte-identical; the English UI copy lives in lib/i18n-en.ts.
+// NOTE: t() keys are Hungarian source strings (gettext-style, see lib/i18n.ts).
+// Keep them byte-identical; the English UI copy lives in lib/i18n-en.ts.
 import { t } from "./lib/i18n";
 import "./Notebook.css";
 
-// Lavox Notes — a real notebook. Left: search + all notes. Top:
+// Lavox Notes: a real notebook. Left: search + all notes. Top:
 // open note tabs. Right: formatting toolbar (rich text, contentEditable).
 // Uses the bar's SHARED store (scratchpad.json, Tauri) → dictation lands here instantly.
 
@@ -140,7 +140,7 @@ export default function Notebook() {
     return () => document.removeEventListener("mousedown", onDown);
   }, [styleOpen]);
 
-  // Glass theme (light / dark / ultra-transparent) — persistent, from the ⋯ menu.
+  // Glass theme (light / dark / ultra-transparent), persistent, from the ⋯ menu.
   const [theme, setTheme] = useState<string>(() => localStorage.getItem("lavox-nb-theme") || "light");
   useEffect(() => {
     localStorage.setItem("lavox-nb-theme", theme);
@@ -245,7 +245,7 @@ export default function Notebook() {
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     const list = q ? notes.filter((n) => stripHtml(n.text).toLowerCase().includes(q)) : notes;
-    // Pinned notes first, then the rest — both groups newest-first.
+    // Pinned notes first, then the rest, both groups newest-first.
     return [...list].sort((a, b) => {
       if (!!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1;
       return b.updated - a.updated;
@@ -345,7 +345,7 @@ export default function Notebook() {
     if (!url) return;
     if (file.type.startsWith("image/")) {
       // data-filename: so the system app receives the file with the correct
-      // extension on open (src is the data URL itself — opened on click).
+      // extension on open (src is the data URL itself, opened on click).
       insertHtmlAtCaret(
         `<img src="${url}" alt="${escAttr(file.name)}" data-filename="${escAttr(file.name)}" class="nb-openable" />`,
       );
@@ -422,7 +422,7 @@ export default function Notebook() {
   }
 
   // ---- SLASH COMMANDS (Notion-style): "/" → block-type menu at the cursor ----
-  // `keys` are search keywords matched against what the user types after "/" —
+  // `keys` are search keywords matched against what the user types after "/";
   // they mix accentless Hungarian and English terms; functional data, not UI copy.
   const SLASH_COMMANDS = [
     { keys: "normal szoveg text body", label: t("Normál szöveg"), icon: Type, run: () => exec("formatBlock", "<p>") },

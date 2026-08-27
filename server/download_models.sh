@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Diarizációs modellek letöltése (sherpa-onnx GitHub releases, MIT licenc).
-# Cél: server/models/ — a Dockerfile build-time futtatja, lokálban kézzel is jó.
+# Downloads the diarization models (sherpa-onnx GitHub releases, MIT license).
+# Target: server/models/. The Dockerfile runs it at build time; locally, run it by hand.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "$0")" && pwd)/models"
@@ -8,7 +8,7 @@ mkdir -p "$DIR"
 cd "$DIR"
 
 SEG_URL="https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-segmentation-models/sherpa-onnx-pyannote-segmentation-3-0.tar.bz2"
-# Figyelem: a release-tag elgépelése ("recongition") a k2-fsa oldalon van így.
+# Note: the typo in the release tag ("recongition") is how k2-fsa published it.
 EMB_URL="https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/nemo_en_titanet_large.onnx"
 
 if [ ! -f sherpa-onnx-pyannote-segmentation-3-0/model.onnx ]; then
@@ -17,14 +17,14 @@ if [ ! -f sherpa-onnx-pyannote-segmentation-3-0/model.onnx ]; then
   tar xjf seg.tar.bz2
   rm seg.tar.bz2
 else
-  echo "[1/2] segmentation model megvan."
+  echo "[1/2] segmentation model already present."
 fi
 
 if [ ! -f nemo_en_titanet_large.onnx ]; then
   echo "[2/2] NeMo TitaNet-large embedding (~97 MB)..."
   curl -sL -O "$EMB_URL"
 else
-  echo "[2/2] embedding model megvan."
+  echo "[2/2] embedding model already present."
 fi
 
-echo "Kész: $DIR"
+echo "Done: $DIR"

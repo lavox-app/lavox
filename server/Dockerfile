@@ -17,9 +17,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl bzip2 \
     && ./download_models.sh \
     && apt-get purge -y curl bzip2 && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
 
-# FIGYELEM: minden ÚJ modult fel kell venni ide, különben a konténer
-# ModuleNotFoundError-ral indul — 2026-07-24-én az accounts.py kihagyása
-# okozott éles kiesést.
+# WARNING: every NEW module must be added here, otherwise the container
+# starts with a ModuleNotFoundError. On 2026-07-24 a missing accounts.py
+# caused a production outage.
 COPY app.py accounts.py diarize.py meetings.py fusion.py introductions.py identify.py shares.py ./
 
 EXPOSE 8040

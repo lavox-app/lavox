@@ -26,7 +26,7 @@ static ACTIVE_SYSCAP: StdMutex<Option<(std::process::Child, String)>> = StdMutex
 static ACTIVE_MEETING_ID: StdMutex<Option<String>> = StdMutex::new(None);
 // Kind of recording: "meeting" (Meet Bridge / calendar) or "video" (manual, from the bar).
 static ACTIVE_RECORD_KIND: StdMutex<Option<String>> = StdMutex::new(None);
-// Unix ms timestamp of when recording started — needed at stop to align the
+// Unix ms timestamp of when recording started, needed at stop to align the
 // Meet CC captions (bridge buffer) to relative time.
 static ACTIVE_RECORD_STARTED_MS: StdMutex<Option<i64>> = StdMutex::new(None);
 // Microphone chosen by the bar's mic picker (None = default).
@@ -37,16 +37,16 @@ static SELECTED_DISPLAY: std::sync::atomic::AtomicUsize = std::sync::atomic::Ato
 fn selected_mic() -> Option<String> {
     SELECTED_MIC.lock().ok().and_then(|g| g.clone())
 }
-// SEPARATE slot for dictation — does NOT share the meeting/calendar recording
+// SEPARATE slot for dictation, does NOT share the meeting/calendar recording
 // mutex, so the two cannot collide (that caused the "push-to-talk almost works" bug).
 static ACTIVE_DICTATION: StdMutex<Option<recorder::StreamingRecorder>> = StdMutex::new(None);
-// Bundle ID of the app active when dictation STARTED — we re-activate it on insertion.
+// Bundle ID of the app active when dictation STARTED, we re-activate it on insertion.
 static DICTATION_TARGET_APP: StdMutex<Option<String>> = StdMutex::new(None);
-// The frontend signals when the pill is idle (thin line) — only then does it follow the cursor.
+// The frontend signals when the pill is idle (thin line), only then does it follow the cursor.
 static FOLLOW_ENABLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
 // Whether the stop poller is running (reliable stop: we poll for Space being released).
 static STOP_POLLER_ACTIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-// Whether the mic-level emitter is running (real-time waveform — only while recording).
+// Whether the mic-level emitter is running (real-time waveform, only while recording).
 static MIC_EMIT_ACTIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 // The notch info (detected at startup on the main thread, since NSScreen is main-thread-only).
 static NOTCH_INFO: StdMutex<Option<notch::NotchInfo>> = StdMutex::new(None);
@@ -54,7 +54,7 @@ static NOTCH_INFO: StdMutex<Option<notch::NotchInfo>> = StdMutex::new(None);
 static NOTCH_APP_HANDLE: StdMutex<Option<tauri::AppHandle>> = StdMutex::new(None);
 
 /// macOS display reconfiguration (monitor connects/disconnects, resolution/scaling
-/// or layout change) — event-driven, NOT polling. Only video connections
+/// or layout change), event-driven, NOT polling. Only video connections
 /// (HDMI/Thunderbolt/built-in) trigger it, Bluetooth does NOT.
 #[cfg(target_os = "macos")]
 mod display_watch {
@@ -81,7 +81,7 @@ extern "C" fn on_display_reconfig(
     flags: display_watch::CGDisplayChangeSummaryFlags,
     _user: *mut std::os::raw::c_void,
 ) {
-    // Skip the START of the reconfiguration — detect at the end (with the actual flags).
+    // Skip the START of the reconfiguration, detect at the end (with the actual flags).
     if flags == display_watch::K_CG_DISPLAY_BEGIN_CONFIGURATION_FLAG {
         return;
     }
@@ -111,7 +111,7 @@ fn get_notch_info() -> notch::NotchInfo {
         .unwrap_or_default()
 }
 
-/// Re-detects the notch (on the MAIN thread — NSScreen is main-thread-only) +
+/// Re-detects the notch (on the MAIN thread, NSScreen is main-thread-only) +
 /// updates NOTCH_INFO, and notifies the overlay with a "notch-refreshed" event.
 /// The frontend calls it periodically → the position stays correct even after
 /// a monitor is plugged/unplugged.
@@ -202,7 +202,7 @@ fn start_dictation_record(app: tauri::AppHandle) -> Result<String, String> {
             std::thread::sleep(std::time::Duration::from_millis(50));
         }
     });
-    // The recording is already running — now save which app was active (we
+    // The recording is already running, now save which app was active (we
     // re-activate it on insertion). Only update to a valid (non-own) app, so a
     // transient pill focus cannot overwrite the real target.
     if let Some(front) = capture_frontmost_app() {
@@ -227,13 +227,13 @@ fn stop_dictation_record() -> Result<String, String> {
 /// Submits the finished dictation to Lavox Memory (local server, fire-and-forget).
 ///
 /// Meetings flow into memory automatically via the server's /api/transcribe;
-/// dictation, however, is produced HERE, on the Hub's whisper.cpp — so the
+/// dictation, however, is produced HERE, on the Hub's whisper.cpp, so the
 /// finished text is submitted separately. Best-effort: if the server is not
 /// running or has no memory module, we let it go silently (it must NEVER
-/// affect dictation's main path — transcription + insertion).
+/// affect dictation's main path, transcription + insertion).
 #[tauri::command]
 async fn dictation_learn(raw: String, corrected: String) -> Result<(), String> {
-    // The user edited a dictation on the overlay — the diff teaches the
+    // The user edited a dictation on the overlay, the diff teaches the
     // personal dictionary. Fire-and-forget: a dropped correction only means
     // one missed learning opportunity, never a blocked UI.
     if raw.trim().is_empty() || corrected.trim().is_empty() || raw == corrected {
@@ -327,7 +327,7 @@ async fn calendar_login(
 }
 
 /// Calendar-connection status for Settings. `configured` says whether the
-/// build contains a Google desktop-client ID — without one there is no point
+/// build contains a Google desktop-client ID, without one there is no point
 /// showing the sign-in button.
 #[tauri::command]
 fn calendar_status() -> serde_json::Value {
@@ -415,7 +415,7 @@ async fn get_calendar_status(
 }
 
 /// Resolves the syscap system-audio helper: bundle Resources (normal + the
-/// `_up_` gotcha — see the Lavox Hub Codesign cert note) and dev-mode paths.
+/// `_up_` gotcha, see the Lavox Hub Codesign cert note) and dev-mode paths.
 fn find_syscap() -> Option<std::path::PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let macos_dir = exe.parent()?;
@@ -439,7 +439,7 @@ fn start_meeting_record() -> Result<String, String> {
     start_capture_with_kind("meeting")
 }
 
-/// Manual video recording from the bar — the same machinery (mic + screen +
+/// Manual video recording from the bar, the same machinery (mic + screen +
 /// system audio), just entered into the registry with kind "video".
 #[tauri::command]
 fn start_video_record() -> Result<String, String> {
@@ -458,7 +458,7 @@ fn start_capture_with_kind(kind: &str) -> Result<String, String> {
     }
 
     // The recording's directory is created at the persistent location ALREADY
-    // AT START — system audio is written straight there, stop puts the mic
+    // AT START, system audio is written straight there, stop puts the mic
     // track in the same place.
     let rec_id = chrono::Local::now().format("%Y%m%d_%H%M%S").to_string();
     let rec_dir = meetings_dir().join(&rec_id);
@@ -472,7 +472,7 @@ fn start_capture_with_kind(kind: &str) -> Result<String, String> {
 
     // System-audio track (the OTHER meeting participants): syscap helper.
     // If the helper is missing or there is no permission, we carry on in
-    // mic-only mode — stop reports back what got saved.
+    // mic-only mode, stop reports back what got saved.
     let sys_path = rec_dir.join("system.wav");
     let video_path = rec_dir.join("screen.mov");
     let display_idx = SELECTED_DISPLAY.load(std::sync::atomic::Ordering::Relaxed);
@@ -504,9 +504,9 @@ fn start_capture_with_kind(kind: &str) -> Result<String, String> {
 }
 
 /// Persistent directory for meeting recordings: ~/Documents/Lavox/meetings.
-/// (Instead of temp — the temp folder may be wiped by a restart.)
+/// (Instead of temp, the temp folder may be wiped by a restart.)
 /// MIGRATION: on first run the old ~/Documents/Hangar folder is renamed to
-/// Lavox, and the absolute paths stored in the JSONs are rewritten too — so
+/// Lavox, and the absolute paths stored in the JSONs are rewritten too, so
 /// not a single old recording/note export is lost.
 pub(crate) fn meetings_dir() -> std::path::PathBuf {
     let docs = dirs_home().join("Documents");
@@ -546,7 +546,7 @@ fn dirs_home() -> std::path::PathBuf {
         .unwrap_or_else(std::env::temp_dir)
 }
 
-/// Metadata of a finished meeting recording — the index.json entry.
+/// Metadata of a finished meeting recording: the index.json entry.
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
 pub(crate) struct MeetingRecordEntry {
     pub id: String,
@@ -557,7 +557,7 @@ pub(crate) struct MeetingRecordEntry {
     pub system: Option<String>,
     #[serde(default)]
     pub video: Option<String>,
-    /// "meeting" or "video" — the dashboard categorizes based on this.
+    /// "meeting" or "video", the dashboard categorizes based on this.
     #[serde(default = "default_kind")]
     pub kind: String,
     #[serde(default)]
@@ -614,7 +614,7 @@ fn stop_meeting_record(title: String) -> Result<String, String> {
     if let Ok(mut sg) = ACTIVE_SYSCAP.lock() {
         if let Some((mut child, sys_path)) = sg.take() {
             drop(child.stdin.take()); // EOF → the helper finalizes the WAV
-            // In video mode finalizing the .mov takes +1.2s — allow plenty.
+            // In video mode finalizing the .mov takes +1.2s, allow plenty.
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(6);
             loop {
                 match child.try_wait() {
@@ -655,7 +655,7 @@ fn stop_meeting_record(title: String) -> Result<String, String> {
         .and_then(|mut g| g.take())
         .unwrap_or_else(|| "meeting".to_string());
 
-    // Registry entry — the dashboard imports from here via the bridge.
+    // Registry entry, the dashboard imports from here via the bridge.
     let entry = MeetingRecordEntry {
         id: rec_id.clone(),
         title: if safe_title.trim().is_empty() {
@@ -703,7 +703,7 @@ fn stop_meeting_record(title: String) -> Result<String, String> {
             let payload = serde_json::json!({ "rec_id": rec_id, "started_ms": start_ms, "events": events });
             if let Ok(json) = serde_json::to_string_pretty(&payload) {
                 // Losing captions.json would silently degrade fusion (unnamed
-                // segments), so at least log the write error — the meeting
+                // segments), so at least log the write error, the meeting
                 // itself is already saved, so we don't fail here, just signal.
                 if let Err(e) = std::fs::write(rec_dir.join("captions.json"), json) {
                     dbg(&format!("CAPTIONS_WRITE_FAIL: {e}"));
@@ -712,7 +712,7 @@ fn stop_meeting_record(title: String) -> Result<String, String> {
         }
     }
 
-    // We return JSON — the frontend learns from it what got saved.
+    // We return JSON, the frontend learns from it what got saved.
     Ok(serde_json::json!({
         "mic": mic_path.to_string_lossy(),
         "system": system_path,
@@ -735,7 +735,7 @@ fn set_server_config(config: remote::ServerConfig) -> Result<(), String> {
 
 /// Redeems the pairing code shown in the webapp onboarding. After a successful
 /// redemption the server config is automatically set to the Lavox cloud
-/// (url+api_key+workspace saved) — the frontend does not need a separate
+/// (url+api_key+workspace saved), the frontend does not need a separate
 /// set_server_config call, only to update its own state with the returned config.
 #[tauri::command]
 async fn hub_pair_claim(code: String) -> Result<remote::ServerConfig, String> {
@@ -795,7 +795,7 @@ async fn remote_transcribe_meeting(
     let system = entry.system.clone();
 
     // TWO-TRACK mode when both tracks exist: the tracks are uploaded SEPARATELY
-    // (compressed to 16 kHz) — the "me vs. them" separation stays deterministic.
+    // (compressed to 16 kHz), the "me vs. them" separation stays deterministic.
     // The mixed mixed_16k.wav is still produced, but only for playback.
     let two_track = mic.is_some() && system.is_some();
     let mic16_path = rec_dir.join("mic_16k.wav").to_string_lossy().to_string();
@@ -817,7 +817,7 @@ async fn remote_transcribe_meeting(
 
     let cfg = remote::load_config();
     let lang = lang.unwrap_or_else(|| load_langs().first().cloned().unwrap_or_else(|| "en".into()));
-    // Meet CC captions (if the bridge captured them) — the server uses them for fusion.
+    // Meet CC captions (if the bridge captured them), the server uses them for fusion.
     let captions_file = rec_dir.join("captions.json");
     let captions_path = captions_file
         .exists()
@@ -830,7 +830,7 @@ async fn remote_transcribe_meeting(
     };
 
     // Calendar attendees as the candidate pool for name inference. Invited ≠
-    // present — the server assigns names from this only with confirming evidence.
+    // present, the server assigns names from this only with confirming evidence.
     let candidate_names: Option<Vec<String>> = {
         let token = cal_state.lock().await.token.as_ref().map(|t| t.access_token.clone());
         if let Some(tok) = token {
@@ -861,7 +861,7 @@ async fn remote_transcribe_meeting(
     .await?;
 
     // Delete the upload copies (mixed_16k.wav stays for playback) and point
-    // the playback reference at the MIXED file — otherwise media.audio_path
+    // the playback reference at the MIXED file, otherwise media.audio_path
     // would point at the just-deleted system_16k.wav.
     let mut result = result;
     if two_track {
@@ -870,13 +870,13 @@ async fn remote_transcribe_meeting(
         result.media.audio_path = mixed_path.clone();
     }
 
-    // capture.json is the ONLY persistent copy of the finished transcript — if
+    // capture.json is the ONLY persistent copy of the finished transcript, if
     // this write fails silently, the UI reports "transcript ready" but
     // load_capture later returns empty (vanished transcript). So we propagate
     // the write error AS AN ERROR, letting the frontend show a "TRANSCRIPT
     // ERROR" notification.
     let json = serde_json::to_string_pretty(&result)
-        .map_err(|e| format!("capture.json serialization: {e}"))?;
+        .map_err(|e| format!("capture.json serialization failed: {e}"))?;
     std::fs::write(rec_dir.join("capture.json"), json)
         .map_err(|e| format!("capture.json write failed ({}): {e}", rec_dir.display()))?;
     Ok(result)
@@ -892,7 +892,7 @@ async fn enroll_speaker(wav_path: String, name: String, is_me: bool) -> Result<S
 
 /// RENAMES a speaker in the finished transcript + optional voice learning
 /// ("tag-once" flow, Otter-style): the cluster's longest segments are cut from
-/// the mixed audio and uploaded as a voice sample under the new name — on the
+/// the mixed audio and uploaded as a voice sample under the new name, on the
 /// next recording the person is recognizable without captions or renaming.
 #[tauri::command]
 async fn rename_speaker(
@@ -903,14 +903,14 @@ async fn rename_speaker(
 ) -> Result<CaptureResult, String> {
     let name = new_name.trim().to_string();
     if name.is_empty() {
-        return Err("Empty name".to_string());
+        return Err("The name must not be empty".to_string());
     }
     let rec_dir = meetings_dir().join(&rec_id);
     let capture_path = rec_dir.join("capture.json");
     let raw = std::fs::read_to_string(&capture_path)
-        .map_err(|e| format!("capture.json read: {e}"))?;
+        .map_err(|e| format!("capture.json read failed: {e}"))?;
     let mut capture: CaptureResult =
-        serde_json::from_str(&raw).map_err(|e| format!("capture.json parse: {e}"))?;
+        serde_json::from_str(&raw).map_err(|e| format!("capture.json parse failed: {e}"))?;
 
     let mut found = false;
     for sp in capture.speakers.iter_mut() {
@@ -923,8 +923,8 @@ async fn rename_speaker(
         return Err(format!("No such speaker: {speaker_id}"));
     }
     let json = serde_json::to_string_pretty(&capture)
-        .map_err(|e| format!("serialization: {e}"))?;
-    std::fs::write(&capture_path, json).map_err(|e| format!("capture.json write: {e}"))?;
+        .map_err(|e| format!("Serialization failed: {e}"))?;
+    std::fs::write(&capture_path, json).map_err(|e| format!("capture.json write failed: {e}"))?;
 
     // Voice learning from the renamed cluster's speech (can be disabled).
     if learn.unwrap_or(true) {
@@ -947,7 +947,7 @@ async fn rename_speaker(
         match cut {
             Ok(true) => {
                 let cfg = remote::load_config();
-                // A learning failure does NOT break the rename — just log it.
+                // A learning failure does NOT break the rename, just log it.
                 if let Err(e) = remote::enroll_speaker(&cfg, &sample_path, &name, false).await {
                     dbg(&format!("RENAME_HARVEST_FAIL: {e}"));
                 }
@@ -992,7 +992,7 @@ fn get_recording_mic() -> Option<String> {
     selected_mic()
 }
 
-/// The available displays — "Display N (WIDTH×HEIGHT)". The index matches the
+/// The available displays, "Display N (WIDTH×HEIGHT)". The index matches the
 /// syscap `--display` argument. Thread-safe (CoreGraphics, not main-thread).
 #[tauri::command]
 fn list_displays() -> Vec<String> {
@@ -1006,7 +1006,7 @@ fn list_displays() -> Vec<String> {
                 .map(|(i, &id)| {
                     let d = CGDisplay::new(id);
                     let b = d.bounds();
-                    let main = if d.is_main() { " — main" } else { "" };
+                    let main = if d.is_main() { ", main" } else { "" };
                     format!(
                         "Display {} ({}×{}){}",
                         i + 1,
@@ -1144,7 +1144,7 @@ fn set_hotkey(combo: HotkeyCombo) {
     crate::hotkey::set_active_combo(combo); // the CGEventTap reads it from here (lives in Task 3)
 }
 
-/// Initial load for the CGEventTap — the persisted combo (Fn default), without command context.
+/// Initial load for the CGEventTap, the persisted combo (Fn default), without command context.
 pub(crate) fn hotkey_load_for_tap() -> crate::hotkey::HotkeyCombo {
     let mut g = HOTKEY_COMBO.lock().unwrap();
     if g.is_none() {
@@ -1244,7 +1244,7 @@ fn update_note(app: tauri::AppHandle, id: String, text: String) {
     drop(g);
     emit_notes_changed(&app);
 }
-/// Pin / unpin a note — pinned notes go to the top of the list.
+/// Pin / unpin a note, pinned notes go to the top of the list.
 #[tauri::command]
 fn set_note_pinned(app: tauri::AppHandle, id: String, pinned: bool) {
     let mut g = NOTES.lock().unwrap();
@@ -1273,7 +1273,7 @@ fn delete_note(app: tauri::AppHandle, id: String) {
 
 /// Whether the notebook window is open.
 static NOTEBOOK_OPEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-/// Whether the notebook is the FOCUSED window — THIS decides dictation routing (text
+/// Whether the notebook is the FOCUSED window, THIS decides dictation routing (text
 /// goes into a note only when we are really in the notebook; otherwise paste at the cursor).
 static NOTEBOOK_FOCUSED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
@@ -1359,7 +1359,7 @@ fn show_notebook(app: tauri::AppHandle) {
     if let Ok(win) = built {
         NOTEBOOK_OPEN.store(true, Ordering::SeqCst);
         NOTEBOOK_FOCUSED.store(true, Ordering::SeqCst);
-        // Vibrancy is NOT applied here — the frontend calls it with the persisted
+        // Vibrancy is NOT applied here, the frontend calls it with the persisted
         // theme (set_notebook_glass) on mount → a single layer, nothing gets stuck.
         let app2 = app.clone();
         win.on_window_event(move |ev| {
@@ -1393,7 +1393,7 @@ fn is_notebook_focused() -> bool {
 }
 
 /// Open the camera-bubble window in the bottom-right corner of the primary display.
-/// A circular, borderless, always-on-top webview — it shows the getUserMedia camera,
+/// A circular, borderless, always-on-top webview, it shows the getUserMedia camera,
 /// which the screen recording captures as PiP (no video compositing).
 #[tauri::command]
 fn show_camera_bubble(app: tauri::AppHandle) {
@@ -1455,11 +1455,11 @@ fn hide_camera_bubble(app: tauri::AppHandle) {
 
 /// Open an image/file inserted into Lavox Notes: decode the data URL
 /// (`data:<mime>;base64,<...>`) into a temporary file, then open it with the system
-/// default app (Preview / Finder app / etc.) — via the `opener` plugin.
+/// default app (Preview / Finder app / etc.), via the `opener` plugin.
 #[tauri::command]
 fn open_attachment(app: tauri::AppHandle, data_url: String, filename: String) -> Result<(), String> {
     use base64::Engine;
-    let comma = data_url.find(',').ok_or("invalid data URL")?;
+    let comma = data_url.find(',').ok_or("Invalid data URL")?;
     let b64 = &data_url[comma + 1..];
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(b64)
@@ -1484,7 +1484,7 @@ fn open_attachment(app: tauri::AppHandle, data_url: String, filename: String) ->
 #[tauri::command]
 fn transcribe_wav(wav_path: String, model_path: String) -> Result<TranscriptResult, String> {
     let langs = get_languages();
-    // NO translation (the turbo model does not translate — that will be a separate
+    // NO translation (the turbo model does not translate, that will be a separate
     // feature). Dictation is PINNED to the configured language: 1 language → force it
     // (other languages are not transcribed correctly); several → auto-detect among the
     // configured ones (in practice en/hu).
@@ -1503,7 +1503,7 @@ const MODEL_URL: &str =
     "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin";
 const MODEL_FILENAME: &str = "ggml-large-v3-turbo.bin";
 
-/// The user's model directory (app-support) — download_model writes here, and
+/// The user's model directory (app-support), download_model writes here, and
 /// find_model searches it too. This keeps the model OUT of the iCloud-synced repo.
 fn models_data_dir() -> std::path::PathBuf {
     let home = std::env::var("HOME").unwrap_or_default();
@@ -1528,9 +1528,9 @@ async fn download_model(app: tauri::AppHandle) -> Result<String, String> {
 
     let mut resp = reqwest::get(MODEL_URL)
         .await
-        .map_err(|e| format!("connection: {e}"))?;
+        .map_err(|e| format!("Connection failed: {e}"))?;
     if !resp.status().is_success() {
-        return Err(format!("download error: HTTP {}", resp.status()));
+        return Err(format!("Download failed: HTTP {}", resp.status()));
     }
     let total = resp.content_length().unwrap_or(0);
     let mut file = tokio::fs::File::create(&tmp).await.map_err(|e| e.to_string())?;
@@ -1539,7 +1539,7 @@ async fn download_model(app: tauri::AppHandle) -> Result<String, String> {
     while let Some(chunk) = resp
         .chunk()
         .await
-        .map_err(|e| format!("download interrupted: {e}"))?
+        .map_err(|e| format!("Download interrupted: {e}"))?
     {
         file.write_all(&chunk).await.map_err(|e| e.to_string())?;
         downloaded += chunk.len() as u64;
@@ -1588,7 +1588,7 @@ fn find_model() -> Result<String, String> {
                 candidates.push(contents.join("Resources").join("models"));
                 // tauri.conf.json "resources": ["../models/*.bin"] cannot place the
                 // ".." directly under Resources/, so it creates an "_up_" subfolder
-                // (Resources/_up_/models/...) — check that too.
+                // (Resources/_up_/models/...), check that too.
                 candidates.push(contents.join("Resources").join("_up_").join("models"));
             }
         }
@@ -1623,7 +1623,7 @@ fn find_model() -> Result<String, String> {
 // TODO(M2.1): real Fn-key detection via CGEventTap (needs native IOKit/CGEventTap).
 const OVERLAY_SHORTCUT: &str = "CmdOrCtrl+Shift+Space";
 
-// The always-on pill's initial (idle) size — a tiny line, so it does not disturb the
+// The always-on pill's initial (idle) size, a tiny line, so it does not disturb the
 // display (Wispr-style). Every further size comes from the frontend via `set_pill_size`.
 const PILL_LINE_W: f64 = 200.0;
 const PILL_LINE_H: f64 = 24.0;
@@ -1632,7 +1632,7 @@ const PILL_LINE_H: f64 = 24.0;
 const PILL_TOP_MARGIN: f64 = 26.0;
 
 /// Returns the monitor under the cursor (multi-monitor). We use Tauri's
-/// `monitor_from_point` API, which handles the coordinate space correctly INTERNALLY —
+/// `monitor_from_point` API, which handles the coordinate space correctly INTERNALLY;
 /// manual bounds-matching is wrong on mixed-scale multi-monitor setups (monitor
 /// positions are scaled inconsistently).
 fn monitor_under_cursor(window: &tauri::WebviewWindow) -> Option<tauri::Monitor> {
@@ -1647,7 +1647,7 @@ fn monitor_under_cursor(window: &tauri::WebviewWindow) -> Option<tauri::Monitor>
 /// INCONSISTENTLY on mixed-scale setups (a non-primary monitor's position gets multiplied
 /// by the primary's scale) → centering on the cursor's monitor drifts.
 /// On the primary (0,0) monitor the math is correct → a stable, centered pill.
-/// True multi-monitor tracking needs native (NSScreen) code — later.
+/// True multi-monitor tracking needs native (NSScreen) code, later.
 fn position_pill(window: &tauri::WebviewWindow, width_logical: f64, height_logical: f64) {
     let ni = NOTCH_INFO.lock().ok().and_then(|g| g.clone());
     // TEMPORARY DEBUG TEST: forced fallback position (notch mode off), to find out
@@ -1656,7 +1656,7 @@ fn position_pill(window: &tauri::WebviewWindow, width_logical: f64, height_logic
         dbg("POSITION_PILL forced fallback (debug)");
     } else
     // NOTCH MODE: align to the CENTER of the notch using fresh NSScreen data (NOTCH_INFO),
-    // NOT Tauri's primary_monitor() — that goes stale when a monitor is attached/detached
+    // NOT Tauri's primary_monitor(), that goes stale when a monitor is attached/detached
     // (the old monitor's size/offset gets stuck → the pill drifts out from under the
     // notch). The notch sits at the top of the primary (built-in) screen, origin (0,0).
     if let Some(ni) = ni.as_ref().filter(|n| n.has_notch) {
@@ -1694,7 +1694,7 @@ fn position_pill(window: &tauri::WebviewWindow, width_logical: f64, height_logic
 }
 
 /// Instrumentation: timestamped line into /tmp/lavox-ptt.log (for analyzing the
-/// push-to-talk pipeline — keydown/keyup, recording, transcription, paste latency).
+/// push-to-talk pipeline, keydown/keyup, recording, transcription, paste latency).
 pub(crate) fn dbg(msg: &str) {
     use std::io::Write;
     if let Ok(mut f) = std::fs::OpenOptions::new()
@@ -1730,7 +1730,7 @@ fn insert_text(text: String) -> Result<(), String> {
 
 /// Resize the pill window to the (logical) size given by the frontend, aligned to
 /// the top of the screen. The frontend drives the tiny-line ↔ hover ↔ expanded
-/// states with this — so every further size tweak is hot-reload, no more Rust
+/// states with this, so every further size tweak is hot-reload, no more Rust
 /// builds needed.
 #[tauri::command]
 fn set_pill_size(app: tauri::AppHandle, width: f64, height: f64) {
@@ -1744,7 +1744,7 @@ fn set_pill_size(app: tauri::AppHandle, width: f64, height: f64) {
 pub fn run() {
     use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut};
 
-    // CmdOrCtrl+Shift+Space — Super (Cmd) on macOS, Ctrl elsewhere.
+    // CmdOrCtrl+Shift+Space, Super (Cmd) on macOS, Ctrl elsewhere.
     #[cfg(target_os = "macos")]
     let primary = Modifiers::SUPER;
     #[cfg(not(target_os = "macos"))]
@@ -1764,7 +1764,7 @@ pub fn run() {
                 .with_handler(move |_app, shortcut, event| {
                     // The dictation trigger runs on the hotkey.rs CGEventTap
                     // (configurable, Fn default). This handler NO LONGER starts
-                    // dictation — only a diagnostic log remains, so there is no
+                    // dictation, only a diagnostic log remains, so there is no
                     // duplicate/conflicting trigger.
                     if shortcut == &overlay_shortcut {
                         dbg(&format!("LEGACY_GS_EVENT state={:?}", event.state));
@@ -1774,11 +1774,11 @@ pub fn run() {
         )
         .setup(move |app| {
             use tauri::Manager;
-            // PUSH-TO-TALK: start the reliable key listener (CGEventTap) — it sees the
+            // PUSH-TO-TALK: start the reliable key listener (CGEventTap), it sees the
             // ⌘⇧Space down/up transitions directly (the Discord/Wispr approach), instead
             // of Global Shortcut's unreliable Released event. Requires Input Monitoring.
             hotkey::start(app.handle().clone());
-            // NOTCH DETECTION (on the main thread — NSScreen is main-thread-only). The
+            // NOTCH DETECTION (on the main thread, NSScreen is main-thread-only). The
             // frontend fits the Dynamic Island-style compact layout to this.
             let ni = notch::detect();
             dbg(&format!(
