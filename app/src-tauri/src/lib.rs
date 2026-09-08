@@ -1,5 +1,6 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 
+mod ax_watch;
 mod bridge;
 mod calendar;
 mod export;
@@ -239,6 +240,16 @@ async fn dictation_learn(raw: String, corrected: String) -> Result<(), String> {
     if raw.trim().is_empty() || corrected.trim().is_empty() || raw == corrected {
         return Ok(());
     }
+    learn_correction(raw, corrected);
+    Ok(())
+}
+
+/// Shared learning path for the Edit button and the passive field watcher.
+/// Fire-and-forget: a dropped correction is one missed lesson, never a block.
+pub(crate) fn learn_correction(raw: String, corrected: String) {
+    if raw.trim().is_empty() || corrected.trim().is_empty() || raw == corrected {
+        return;
+    }
     let cfg = remote::load_config();
     let url = format!("{}/api/dictionary/learn", cfg.url.trim_end_matches('/'));
     tauri::async_runtime::spawn(async move {
@@ -253,7 +264,6 @@ async fn dictation_learn(raw: String, corrected: String) -> Result<(), String> {
                 .await;
         }
     });
-    Ok(())
 }
 
 #[tauri::command]
@@ -1725,7 +1735,12 @@ fn insert_text(text: String) -> Result<(), String> {
         .lock()
         .ok()
         .and_then(|t| t.clone());
-    inject::insert_text(&text, target.as_deref())
+    inject::insert_text(&text, target.as_deref())?;
+    // Passive learning: watch the field the text landed in, and learn from the
+    // user's in-place edits without any extra click.
+    #[cfg(target_os = "macos")]
+    ax_watch::watch_after_insert(text, learn_correction);
+    Ok(())
 }
 
 /// Resize the pill window to the (logical) size given by the frontend, aligned to
