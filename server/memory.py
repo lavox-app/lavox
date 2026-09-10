@@ -408,6 +408,16 @@ def _delete_recording(db: sqlite3.Connection, rid: str) -> None:
             db.execute(f"DELETE FROM vec_chunk_{tag} WHERE rowid=?", (cid,))
     for cid in ids:
         db.execute("DELETE FROM chunks_fts WHERE rowid=?", (cid,))
+    # Assertions extracted from this recording keep existing (they may have
+    # been corrected/superseded since), but their chunk anchor is about to
+    # disappear: null it out instead of leaving a dangling reference. With
+    # PRAGMA foreign_keys=ON a plain chunk delete would fail outright.
+    if ids:
+        marks = ",".join("?" * len(ids))
+        db.execute(
+            f"UPDATE assertions SET source_chunk_id=NULL "
+            f"WHERE source_chunk_id IN ({marks})", ids,
+        )
     db.execute("DELETE FROM chunks WHERE recording_id=?", (rid,))
     db.execute("DELETE FROM recordings WHERE id=?", (rid,))
 

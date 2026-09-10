@@ -29,6 +29,7 @@ from contextlib import asynccontextmanager
 from fastapi import BackgroundTasks, FastAPI, File, Form, UploadFile, Query, HTTPException, Header, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+import av.error
 from faster_whisper import WhisperModel
 from faster_whisper.audio import decode_audio
 
@@ -555,15 +556,23 @@ def _harvest_named_speakers(
 
 def _whisper_segments(path: str, language: str | None):
     """Whisper transcript for one file → (segments, info). In two-track mode, per track."""
-    segments_raw, info = model.transcribe(
-        path,
-        language=language,
-        beam_size=5,
-        vad_filter=True,
-        vad_parameters=VAD_PARAMETERS,
-        # personal dictionary → decoder vocabulary biasing (names, jargon)
-        hotwords=dictionary.hotwords_string(),
-    )
+    try:
+        segments_raw, info = model.transcribe(
+            path,
+            language=language,
+            beam_size=5,
+            vad_filter=True,
+            vad_parameters=VAD_PARAMETERS,
+            # personal dictionary → decoder vocabulary biasing (names, jargon)
+            hotwords=dictionary.hotwords_string(),
+        )
+    except av.error.FFmpegError as e:
+        # Not audio (or a truncated/corrupt file): the client's fault, not a
+        # server error. Without this, a garbage upload surfaces as a 500.
+        raise HTTPException(
+            status_code=400,
+            detail=f"Could not decode the uploaded file as audio ({e.__class__.__name__})",
+        )
     segs = []
     for seg in segments_raw:
         segs.append({
@@ -830,7 +839,13 @@ async def enroll_speaker(
         tmp.flush()
         # decode_audio + embed is blocking CPU work, we put it in to_thread
         # (same pattern as in transcribe) so it does not freeze the event loop.
-        samples = await asyncio.to_thread(decode_audio, tmp.name, sampling_rate=diar.SAMPLE_RATE)
+        try:
+            samples = await asyncio.to_thread(decode_audio, tmp.name, sampling_rate=diar.SAMPLE_RATE)
+        except av.error.FFmpegError as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Could not decode the uploaded file as audio ({e.__class__.__name__})",
+            )
 
     dur = len(samples) / diar.SAMPLE_RATE
     if dur < 5.0:
