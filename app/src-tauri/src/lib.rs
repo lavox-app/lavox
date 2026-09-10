@@ -1970,6 +1970,16 @@ pub fn run() {
             export::export_transcript_to_obsidian,
             export::export_capture_to_obsidian
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while running tauri application")
+        .run(|_app, event| {
+            if let tauri::RunEvent::Exit = event {
+                // whisper.cpp's GGML Metal backend aborts in a C++ static
+                // destructor during normal process teardown (ggml_metal_device_free
+                // via __cxa_finalize), which macOS reports as a crash on every
+                // quit. By this point every cleanup that matters has run;
+                // exiting here skips the faulty static destructors.
+                std::process::exit(0);
+            }
+        });
 }

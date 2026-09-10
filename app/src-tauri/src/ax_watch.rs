@@ -135,9 +135,23 @@ pub fn watch_after_insert(inserted: String, learn: impl Fn(String, String) + Sen
     let generation = GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
 
     std::thread::spawn(move || {
-        // Let the paste land and focus settle.
+        // Let the paste land and focus settle. Right after the synthetic
+        // Cmd+V the system may briefly report no focused element (or focus
+        // is still on our pill), so ask patiently instead of giving up on
+        // the first empty read.
         std::thread::sleep(Duration::from_millis(600));
-        let Some(field) = focused_element() else { return };
+        let mut field = None;
+        for _ in 0..5 {
+            if GENERATION.load(Ordering::SeqCst) != generation {
+                return; // a newer dictation took over while waiting
+            }
+            if let Some(f) = focused_element() {
+                field = Some(f);
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(700));
+        }
+        let Some(field) = field else { return };
 
         // The inserted text must be visible in the field, otherwise this field
         // is not readable for us (canvas editors, secure fields) and we stop.

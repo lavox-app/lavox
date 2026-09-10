@@ -136,23 +136,41 @@ def learn_from_correction(raw: str, corrected: str) -> list[dict[str, str]]:
         autojunk=False,
     )
     learned: list[dict[str, str]] = []
+
+    def learn_pair(mis: str, good: str) -> None:
+        if len(learned) >= MAX_LEARN_PER_CALL:
+            return
+        if not mis or not good or mis == good or not _is_term_like(good):
+            return
+        add_term(good, misheard=mis, source="learned")
+        learned.append({"misheard": mis, "term": good})
+
     for op, a0, a1, b0, b1 in matcher.get_opcodes():
+        if op == "equal":
+            # The matcher compares lowercased words, so a case-only fix
+            # ("plansmart ai" typed back as "PlanSmart AI") lands in an
+            # `equal` block, never in `replace`. Walk the block and collect
+            # consecutive case-differing words as one term.
+            run_mis: list[str] = []
+            run_good: list[str] = []
+            for rw, cw in zip(raw_words[a0:a1], cor_words[b0:b1]):
+                if rw != cw:
+                    run_mis.append(rw)
+                    run_good.append(cw)
+                    continue
+                if run_mis and len(run_mis) <= MAX_PAIR_WORDS:
+                    learn_pair(" ".join(run_mis), " ".join(run_good))
+                run_mis, run_good = [], []
+            if run_mis and len(run_mis) <= MAX_PAIR_WORDS:
+                learn_pair(" ".join(run_mis), " ".join(run_good))
+            continue
         if op != "replace":
             continue  # pure inserts/deletes teach nothing about spelling
         if (a1 - a0) > MAX_PAIR_WORDS or (b1 - b0) > MAX_PAIR_WORDS:
             continue
         mis = " ".join(raw_words[a0:a1]).strip(".,!?:;")
         good = " ".join(cor_words[b0:b1]).strip(".,!?:;")
-        if not mis or not good or mis.lower() == good.lower():
-            # case-only fix: still valuable as a replacement (lavox → Lavox)
-            if mis != good and _is_term_like(good):
-                add_term(good, misheard=mis, source="learned")
-                learned.append({"misheard": mis, "term": good})
-            continue
-        if not _is_term_like(good):
-            continue
-        add_term(good, misheard=mis, source="learned")
-        learned.append({"misheard": mis, "term": good})
+        learn_pair(mis, good)
         if len(learned) >= MAX_LEARN_PER_CALL:
             break
     return learned
