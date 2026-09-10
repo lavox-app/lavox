@@ -14,6 +14,11 @@ services:
       - MAX_FILE_MB=100
       # Generate one: python3 -c "import secrets; print(secrets.token_urlsafe(32))"
       - LAVOX_API_KEY=${LAVOX_API_KEY:-}
+      # Inside the container every request arrives from the Docker bridge IP,
+      # so the loopback-only network guard cannot apply. It is safe to relax
+      # here because "ports" above publishes to 127.0.0.1 only. If you expose
+      # the port beyond localhost, set LAVOX_API_KEY and remove this line.
+      - LAVOX_ALLOW_UNAUTH_NETWORK=${LAVOX_ALLOW_UNAUTH_NETWORK:-1}
       - DIARIZE_ENABLED=1
       - SPEAKER_DB_DIR=/app/data/speakers
       # Meeting store (Postgres + Cloudflare R2)

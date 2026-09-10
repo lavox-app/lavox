@@ -48,15 +48,32 @@ except Exception:
     _MEMORY_OK = False
 
 
-def _memory_ingest_background(rec: dict, segments: list) -> None:
-    """Background ingest after transcription, the response does not wait for it.
-    Its failure never affects the main flow, it only logs."""
+def _memory_enqueue_ingest(rec: dict, segments: list) -> int | None:
+    """Persist the ingest job BEFORE the response goes out (one cheap INSERT).
+    A crash or restart after this point can no longer lose the recording:
+    the queue is drained in the background and again at every startup.
+    Failure never affects the main flow, it only logs."""
     try:
         db = _lavox_memory.connect()
-        res = _lavox_memory.ingest_recording(db, rec, segments)
-        print(f"[memory] ingest: {res}")
+        try:
+            return _lavox_memory.enqueue_ingest(db, rec, segments)
+        finally:
+            db.close()
     except Exception as e:
-        print(f"[memory] ingest FAILED (non-critical): {e}")
+        print(f"[memory] enqueue FAILED (non-critical): {e}")
+        return None
+
+
+def _memory_drain_ingests() -> None:
+    """Run every pending ingest job (background task and startup recovery)."""
+    try:
+        db = _lavox_memory.connect()
+        try:
+            _lavox_memory.run_pending_ingests(db)
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[memory] ingest drain FAILED (non-critical): {e}")
 
 
 import diarize as diar
@@ -117,6 +134,10 @@ async def lifespan(app: FastAPI):
             print(f"R2 bucket CORS skipped (non-critical): {e}")
     else:
         print("Meetings store DISABLED (missing LAVOX_PG_DSN / LAVOX_R2_* env)")
+    if _MEMORY_OK:
+        import threading
+        threading.Thread(target=_memory_drain_ingests, daemon=True).start()
+        print("Memory ingest queue: startup recovery running")
     if accounts.available():
         try:
             accounts.init_schema()
@@ -154,6 +175,35 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Network guard: the no-auth default is only safe as long as the server is
+# actually private. If someone binds it to 0.0.0.0 (or port-forwards it)
+# without configuring LAVOX_API_KEY, every non-loopback request is refused
+# instead of silently serving the whole network. Deliberate open LAN use:
+# set LAVOX_ALLOW_UNAUTH_NETWORK=1.
+_ALLOW_UNAUTH_NETWORK = os.environ.get("LAVOX_ALLOW_UNAUTH_NETWORK", "0") == "1"
+_LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost", "testclient", None, ""}
+
+
+@app.middleware("http")
+async def _network_guard(request: Request, call_next):
+    if API_KEY or accounts.available() or _ALLOW_UNAUTH_NETWORK:
+        return await call_next(request)
+    if request.url.path == "/health":
+        return await call_next(request)
+    client = request.client.host if request.client else None
+    if client not in _LOOPBACK_HOSTS:
+        return JSONResponse(
+            status_code=403,
+            content={
+                "detail": (
+                    "This server has no authentication configured and only "
+                    "accepts local requests. To expose it on a network, set "
+                    "LAVOX_API_KEY (recommended) or LAVOX_ALLOW_UNAUTH_NETWORK=1."
+                )
+            },
+        )
+    return await call_next(request)
 
 
 def check_auth(authorization: str | None):
@@ -431,11 +481,23 @@ def auth_logout(authorization: str | None = Header(default=None)):
 
 
 async def _read_upload(file: UploadFile) -> bytes:
-    content = await file.read()
-    size_mb = len(content) / (1024 * 1024)
-    if size_mb > MAX_FILE_MB:
-        raise HTTPException(status_code=413, detail=f"File too large ({size_mb:.1f} MB > {MAX_FILE_MB} MB)")
-    return content
+    """Read the upload in chunks and abort as soon as the limit is passed,
+    instead of first pulling an arbitrarily large body fully into RAM."""
+    limit = MAX_FILE_MB * 1024 * 1024
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await file.read(4 * 1024 * 1024)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > limit:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File too large (> {MAX_FILE_MB} MB)",
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 def _harvest_named_speakers(
@@ -741,8 +803,9 @@ async def transcribe(
             ],
             "meta": {"source": "auto_ingest"},
         }
-        background_tasks.add_task(_memory_ingest_background, _rec, list(segments))
-        response["memory"] = {"scheduled": True, "recording_id": _rid}
+        _job = _memory_enqueue_ingest(_rec, list(segments))
+        background_tasks.add_task(_memory_drain_ingests)
+        response["memory"] = {"scheduled": _job is not None, "recording_id": _rid}
     return JSONResponse(response)
 
 
@@ -1059,8 +1122,9 @@ def memory_ingest(
         "occurred_at": body.occurred_at or now.isoformat(timespec="seconds"),
         "meta": {"source": "dictation_hook"},
     }
-    background_tasks.add_task(_memory_ingest_background, rec, [{"text": text}])
-    return JSONResponse({"scheduled": True, "recording_id": rid})
+    job = _memory_enqueue_ingest(rec, [{"text": text}])
+    background_tasks.add_task(_memory_drain_ingests)
+    return JSONResponse({"scheduled": job is not None, "recording_id": rid})
 
 
 @app.get("/api/shared/{token}")

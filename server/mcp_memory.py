@@ -21,6 +21,7 @@ BEFORE saying you don't know, search.
 from __future__ import annotations
 
 import json
+import os
 from typing import Any
 
 from mcp.server.mcpserver import MCPServer
@@ -134,7 +135,15 @@ def stats() -> str:
     return json.dumps(memory.stats(db()), ensure_ascii=False)
 
 
-@server.tool()
+# Read-only mode: LAVOX_MCP_READONLY=1 leaves the write tools (remember/
+# correct) unregistered. Use it whenever the client on the other end is not
+# fully trusted with persistent memory mutation — a remote gateway, a shared
+# machine, an experimental agent. Tool descriptions discipline a
+# well-behaved model, but only the absence of the tool stops prompt
+# injection from writing durable false memories.
+_READONLY = os.environ.get("LAVOX_MCP_READONLY", "0") == "1"
+
+
 def remember(text: str, type: str = "fact", data: dict | None = None) -> str:
     """Records a NEW durable fact into the user's long-term memory. ONLY call this
     when the user explicitly asks you to remember something, or clearly states a
@@ -172,7 +181,6 @@ def remember(text: str, type: str = "fact", data: dict | None = None) -> str:
     return json.dumps(out, ensure_ascii=False)
 
 
-@server.tool()
 def correct(old_id: str, new_text: str, reason: str | None = None) -> str:
     """Marks an existing memory as superseded and stores the corrected version.
     Use when `search` returns something the user has since contradicted or
@@ -206,6 +214,11 @@ def correct(old_id: str, new_text: str, reason: str | None = None) -> str:
         "replacement": f"assertion:{new_id}",
         "note": "The old memory remains retrievable with include_superseded=true.",
     })
+
+
+if not _READONLY:
+    server.tool()(remember)
+    server.tool()(correct)
 
 
 @server.tool()

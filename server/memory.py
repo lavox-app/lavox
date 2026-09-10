@@ -139,6 +139,21 @@ CREATE VIRTUAL TABLE IF NOT EXISTS assertions_fts USING fts5(
 -- Which embedding model is active. Vectors live in model-tagged vec0 tables
 -- (vec_chunk_<tag>, vec_assertion_<tag>), a model swap = filling a new table
 -- in parallel, switching over, dropping the old one. No downtime.
+-- Durable ingest queue: a transcript's memory ingest must survive a process
+-- crash or restart. The job row is committed BEFORE the HTTP response goes
+-- out; a worker (or the next startup) drains pending rows. See
+-- enqueue_ingest() / run_pending_ingests().
+CREATE TABLE IF NOT EXISTS ingest_jobs (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  recording   TEXT NOT NULL,               -- JSON of the recording dict
+  segments    TEXT NOT NULL,               -- JSON list of transcript segments
+  status      TEXT NOT NULL DEFAULT 'pending',  -- pending | done | failed
+  attempts    INTEGER NOT NULL DEFAULT 0,
+  last_error  TEXT,
+  created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+  updated_at  TEXT
+);
+
 CREATE TABLE IF NOT EXISTS embedding_models (
   model_id  TEXT PRIMARY KEY,
   dim       INTEGER NOT NULL,
@@ -158,6 +173,7 @@ def connect() -> sqlite3.Connection:
     db = sqlite3.connect(DB_PATH)
     db.execute("PRAGMA journal_mode=WAL")       # multiple clients, no corruption
     db.execute("PRAGMA busy_timeout=5000")
+    db.execute("PRAGMA foreign_keys=ON")        # off by default in SQLite
     db.enable_load_extension(True)
     import sqlite_vec
     sqlite_vec.load(db)
@@ -399,6 +415,77 @@ def _delete_recording(db: sqlite3.Connection, rid: str) -> None:
 # ---------------------------------------------------------------------------
 # Search: 4 lists → RRF → cross-linking → conditional recency
 # ---------------------------------------------------------------------------
+
+MAX_INGEST_ATTEMPTS = 3
+
+
+def enqueue_ingest(
+    db: sqlite3.Connection,
+    recording: dict[str, Any],
+    segments: list[dict[str, Any]],
+) -> int:
+    """Persist an ingest job BEFORE the caller answers its client. Cheap
+    (one INSERT); the expensive embedding/extraction work happens in
+    run_pending_ingests(), which any worker or the next startup can run.
+    This is what makes a crash between "transcript returned" and "memory
+    written" recoverable instead of silently losing the recording."""
+    cur = db.execute(
+        "INSERT INTO ingest_jobs (recording, segments) VALUES (?, ?)",
+        (json.dumps(recording, ensure_ascii=False),
+         json.dumps(segments, ensure_ascii=False)),
+    )
+    db.commit()
+    return int(cur.lastrowid)
+
+
+def run_pending_ingests(db: sqlite3.Connection) -> dict[str, Any]:
+    """Drain the ingest queue. Safe to call from multiple places: each job is
+    claimed with a conditional UPDATE, and ingest_recording() itself is
+    idempotent per recording id. Jobs that keep failing stop after
+    MAX_INGEST_ATTEMPTS and keep their last_error for diagnosis."""
+    done, failed = 0, 0
+    while True:
+        row = db.execute(
+            "SELECT id FROM ingest_jobs WHERE status='pending' AND attempts < ? "
+            "ORDER BY id LIMIT 1", (MAX_INGEST_ATTEMPTS,)
+        ).fetchone()
+        if not row:
+            break
+        job_id = row[0]
+        claimed = db.execute(
+            "UPDATE ingest_jobs SET attempts = attempts + 1, "
+            "updated_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') "
+            "WHERE id=? AND status='pending'", (job_id,)
+        )
+        db.commit()
+        if claimed.rowcount == 0:
+            continue
+        rec_json, seg_json, attempts = db.execute(
+            "SELECT recording, segments, attempts FROM ingest_jobs WHERE id=?",
+            (job_id,),
+        ).fetchone()
+        try:
+            res = ingest_recording(db, json.loads(rec_json), json.loads(seg_json))
+            db.execute(
+                "UPDATE ingest_jobs SET status='done', last_error=NULL, "
+                "updated_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id=?",
+                (job_id,),
+            )
+            db.commit()
+            done += 1
+            print(f"[memory] ingest job {job_id}: {res}")
+        except Exception as e:
+            status = "failed" if attempts >= MAX_INGEST_ATTEMPTS else "pending"
+            db.execute(
+                "UPDATE ingest_jobs SET status=?, last_error=?, "
+                "updated_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id=?",
+                (status, str(e)[:500], job_id),
+            )
+            db.commit()
+            failed += 1
+            print(f"[memory] ingest job {job_id} attempt {attempts} FAILED: {e}")
+    return {"done": done, "failed": failed}
+
 
 def _fts_query(user_query: str) -> str:
     """User text → safe FTS5 query.

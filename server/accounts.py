@@ -150,14 +150,16 @@ def claim_pairing_code(code: str) -> dict[str, Any] | None:
     if invalid/expired/already claimed."""
     code = (code or "").strip().upper()
     with _conn() as conn:
+        # Single conditional UPDATE: two concurrent claims of the same code
+        # cannot both succeed (a SELECT-then-UPDATE pair could race).
         row = conn.execute(
-            """SELECT user_id, workspace_id, claimed_at, (expires_at < now()) AS expired
-               FROM pairing_codes WHERE code=%s""",
+            """UPDATE pairing_codes SET claimed_at=now()
+               WHERE code=%s AND claimed_at IS NULL AND expires_at >= now()
+               RETURNING user_id, workspace_id""",
             (code,),
         ).fetchone()
-        if not row or row["claimed_at"] is not None or row["expired"]:
+        if not row:
             return None
-        conn.execute("UPDATE pairing_codes SET claimed_at=now() WHERE code=%s", (code,))
         token = _issue_token(conn, row["user_id"], kind="hub")
     return {"token": token, "workspace": row["workspace_id"]}
 

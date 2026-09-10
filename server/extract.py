@@ -7,8 +7,9 @@ something no competitor on the market does (ADR from your voice).
 
 PRINCIPLES (from the research measurements):
 - Extraction is an INDEX, not a replacement: the raw transcript remains the
-  canonical store, every assertion is anchored to a source chunk via a quote
-  (provenance).
+  canonical store, assertions are anchored to their source chunk via a quote
+  (provenance); when no credible anchor exists, the assertion stays
+  unanchored rather than pointing at an arbitrary chunk.
 - Write-time conflict resolution: each new assertion is confronted with the
   similar LIVE assertions; if it contradicts one about the same subject, the
   old one enters the supersedes chain (invalidated_at + superseded_by);
@@ -122,10 +123,11 @@ def _transcript_text(db, recording_id: str) -> str:
 
 
 def _anchor_quote(db, recording_id: str, quote: str) -> int | None:
-    """Anchor the quote to its source chunk. Provenance is a mandatory
-    principle, if the exact passage is not found (the model fixed the
-    spelling), fall back via FTS to the best chunk within the same
-    recording."""
+    """Anchor the quote to its source chunk. If the exact passage is not
+    found (the model fixed the spelling), fall back via FTS to the best
+    chunk within the same recording; if even that finds no credible match,
+    return None. An unanchored assertion is honest, an arbitrary anchor
+    would be fabricated provenance."""
     if not quote:
         return None
     norm = re.sub(r"\s+", " ", quote.strip().lower())
@@ -148,7 +150,9 @@ def _anchor_quote(db, recording_id: str, quote: str) -> int | None:
     for (rid,) in hits:
         if rid in valid:
             return rid
-    return rows[0][0] if rows else None
+    # No reliable match: better an unanchored assertion than fabricated
+    # provenance pointing at an arbitrary chunk.
+    return None
 
 
 def _reconcile(db, new_text: str, new_vec: bytes, model_tag: str) -> tuple[str, int | None]:
